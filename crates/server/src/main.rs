@@ -24,6 +24,8 @@ use shared::{
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
 
+mod pg;
+
 const DEFAULT_PORT: u16 = 5000;
 const MAX_CLIENTS: usize = 16;
 
@@ -52,9 +54,18 @@ fn main() -> anyhow::Result<()> {
     .add_observer(on_client_disconnected)
     .add_observer(on_move_command);
 
-    // Carrega a receita da zona via repository (D4.3). Default: em memória; o Postgres
-    // entra quando `DATABASE_URL` estiver setado (ver `pg` module).
-    let repo = InMemoryRepository::default();
+    // Carrega a receita da zona via repository (D4.3), backend trocável: Postgres se
+    // `DATABASE_URL` estiver setado, senão em memória.
+    let repo: Box<dyn WorldRepository> = match std::env::var("DATABASE_URL") {
+        Ok(url) => {
+            info!("repository: Postgres");
+            Box::new(pg::PostgresRepository::new(url))
+        }
+        Err(_) => {
+            info!("repository: em memória (sem DATABASE_URL)");
+            Box::new(InMemoryRepository::default())
+        }
+    };
     let zone = repo.load_or_init_seed()?;
     info!("zona: seed={:#x} ({}x{} tiles)", zone.seed, zone.tiles_x, zone.tiles_y);
     app.insert_resource(zone);
