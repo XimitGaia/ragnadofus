@@ -18,7 +18,7 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::{MoveCommand, Player, Position, ProtocolPlugin};
+use shared::{MoveCommand, Npc, Player, Position, ProtocolPlugin};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::SystemTime;
 
@@ -43,7 +43,10 @@ fn main() -> anyhow::Result<()> {
     .add_plugins((RepliconPlugins, RepliconRenetPlugins))
     .add_plugins(ProtocolPlugin)
     .add_systems(Startup, setup_scene)
-    .add_systems(Update, (read_input, hydrate_players, sync_transforms).chain());
+    .add_systems(
+        Update,
+        (read_input, hydrate_players, hydrate_npcs, sync_transforms).chain(),
+    );
 
     connect(&mut app, server_addr)?;
     info!("cliente ragnadofus conectando a {server_addr}");
@@ -147,9 +150,19 @@ fn hydrate_players(mut commands: Commands, players: Query<(Entity, &Player), Wit
     }
 }
 
-/// Espelha a `Position` replicada no `Transform` de render (mantém z).
-fn sync_transforms(mut players: Query<(&Position, &mut Transform), With<Player>>) {
-    for (position, mut transform) in &mut players {
+/// Dá corpo visual ao NPC replicado (sprite azul, distinto dos players).
+fn hydrate_npcs(mut commands: Commands, npcs: Query<Entity, (With<Npc>, Without<Sprite>)>) {
+    for entity in &npcs {
+        commands.entity(entity).insert((
+            Sprite::from_color(Color::srgb(0.2, 0.5, 0.95), Vec2::new(16.0, 24.0)),
+            Transform::from_xyz(0.0, 0.0, 100.0),
+        ));
+    }
+}
+
+/// Espelha a `Position` replicada (players e NPC) no `Transform` de render (mantém z).
+fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
+    for (position, mut transform) in &mut entities {
         transform.translation.x = position.0.x;
         transform.translation.y = position.0.y;
     }

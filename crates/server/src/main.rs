@@ -17,7 +17,10 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetServer},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::{MoveCommand, MoveIntent, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity};
+use shared::{
+    subcell_center, MoveCommand, MoveIntent, Npc, Patrol, Player, PlayerId, Position, ProtocolPlugin,
+    SharedPlugin, SubCell, Velocity, Walkmap,
+};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
 
@@ -44,6 +47,7 @@ fn main() -> anyhow::Result<()> {
         RepliconRenetPlugins,
     ))
     .add_plugins((ProtocolPlugin, SharedPlugin))
+    .add_systems(Startup, setup_world)
     .add_observer(on_client_connected)
     .add_observer(on_client_disconnected)
     .add_observer(on_move_command);
@@ -52,6 +56,29 @@ fn main() -> anyhow::Result<()> {
     info!("servidor ragnadofus ouvindo em 0.0.0.0:{port}");
     app.run();
     Ok(())
+}
+
+/// Carrega a walkmap da zona (com uma parede para o A* contornar) e spawna o NPC
+/// patrulheiro. No Passo 6 a walkmap/seed virá do Postgres (repository).
+fn setup_world(mut commands: Commands) {
+    let mut map = Walkmap::flat(64, 64);
+    // Parede vertical com passagem só no topo → obriga o A* do NPC a contornar.
+    for y in 0..180 {
+        for x in 120..136 {
+            map.set(x, y, SubCell { height: 0, walkable: false });
+        }
+    }
+    commands.insert_resource(map);
+
+    commands.spawn((
+        Npc,
+        Position(subcell_center((10, 10))),
+        Velocity(Vec2::ZERO),
+        MoveIntent(Vec2::ZERO),
+        Patrol::new(vec![(245, 10), (10, 10)]),
+        Replicated,
+    ));
+    info!("mundo carregado: walkmap 64x64 (1 parede) + 1 NPC patrulhando via A*");
 }
 
 /// Cria o `RenetServer` + transporte netcode e os insere como recursos.

@@ -2,7 +2,7 @@
 //! protocolo precisa bater nos dois lados). Componentes autoritativos do servidor são
 //! replicados aos clientes; o cliente envia apenas o comando de movimento (intenção).
 
-use crate::components::{Player, Position};
+use crate::components::{Npc, Player, Position};
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,7 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         app.replicate::<Position>()
             .replicate::<Player>()
+            .replicate::<Npc>()
             .add_client_event::<MoveCommand>(Channel::Ordered);
     }
 }

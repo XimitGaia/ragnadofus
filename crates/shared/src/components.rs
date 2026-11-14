@@ -20,8 +20,9 @@ pub struct Velocity(pub Vec2);
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player(pub PlayerId);
 
-/// Marker do NPC controlado pelo servidor (A* replicado — D2.4).
-#[derive(Component, Debug, Clone, Copy, Default)]
+/// Marker do NPC controlado pelo servidor (A* replicado — D2.4). Replicado para o
+/// cliente renderizar o NPC.
+#[derive(Component, Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Npc;
 
 /// Intenção de movimento: a direção desejada (não normalizada). O cliente a escreve a

@@ -105,6 +105,21 @@ impl Walkmap {
         };
         to_cell.walkable && (to_cell.height - from_cell.height).abs() <= STEP_MAX
     }
+
+    /// Versão pública da regra de passo (usada pelo pathfinding A* — P5).
+    #[must_use]
+    pub fn passable(&self, from: (u32, u32), to: (u32, u32)) -> bool {
+        self.can_enter(from, to)
+    }
+}
+
+/// Centro no mundo de uma sub-célula (para transformar waypoints de path em alvos).
+#[must_use]
+pub fn subcell_center(sub: (u32, u32)) -> Vec2 {
+    Vec2::new(
+        (sub.0 as f32 + 0.5) * SUBCELL_SIZE,
+        (sub.1 as f32 + 0.5) * SUBCELL_SIZE,
+    )
 }
 
 /// Resolve um passo de `from` para `to` contra a walkmap: tenta o movimento cheio;
