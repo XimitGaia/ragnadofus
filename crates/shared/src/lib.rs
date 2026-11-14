@@ -19,6 +19,7 @@ pub mod pathfinding;
 pub mod protocol;
 pub mod serde_helpers;
 pub mod walkmap;
+pub mod world;
 
 pub use components::{MoveIntent, Npc, Player, Position, Velocity};
 pub use ids::{PlayerId, Tick};
@@ -28,6 +29,7 @@ pub use npc::Patrol;
 pub use pathfinding::find_path;
 pub use protocol::{MoveCommand, ProtocolPlugin};
 pub use walkmap::{resolve_move, subcell_center, SubCell, Walkmap};
+pub use world::{build_walkmap, InMemoryRepository, RepoError, WorldRepository, ZoneSeed};
 
 /// Plugin raiz do ECS compartilhado. No Passo 1 é um esqueleto; sistemas de simulação
 /// (`FixedUpdate`), replicação e componentes de gameplay entram nos passos seguintes.

@@ -4379,6 +4379,7 @@ dependencies = [
  "bevy",
  "bevy_replicon",
  "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

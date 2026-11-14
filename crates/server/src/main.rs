@@ -18,8 +18,8 @@ use bevy_replicon_renet2::{
     RenetChannelsExt, RepliconRenetPlugins,
 };
 use shared::{
-    subcell_center, MoveCommand, MoveIntent, Npc, Patrol, Player, PlayerId, Position, ProtocolPlugin,
-    SharedPlugin, SubCell, Velocity, Walkmap,
+    build_walkmap, subcell_center, InMemoryRepository, MoveCommand, MoveIntent, Npc, Patrol, Player,
+    PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity, WorldRepository, ZoneSeed,
 };
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
@@ -52,6 +52,13 @@ fn main() -> anyhow::Result<()> {
     .add_observer(on_client_disconnected)
     .add_observer(on_move_command);
 
+    // Carrega a receita da zona via repository (D4.3). Default: em memória; o Postgres
+    // entra quando `DATABASE_URL` estiver setado (ver `pg` module).
+    let repo = InMemoryRepository::default();
+    let zone = repo.load_or_init_seed()?;
+    info!("zona: seed={:#x} ({}x{} tiles)", zone.seed, zone.tiles_x, zone.tiles_y);
+    app.insert_resource(zone);
+
     setup_server(&mut app, port)?;
     info!("servidor ragnadofus ouvindo em 0.0.0.0:{port}");
     app.run();
@@ -60,14 +67,9 @@ fn main() -> anyhow::Result<()> {
 
 /// Carrega a walkmap da zona (com uma parede para o A* contornar) e spawna o NPC
 /// patrulheiro. No Passo 6 a walkmap/seed virá do Postgres (repository).
-fn setup_world(mut commands: Commands) {
-    let mut map = Walkmap::flat(64, 64);
-    // Parede vertical com passagem só no topo → obriga o A* do NPC a contornar.
-    for y in 0..180 {
-        for x in 120..136 {
-            map.set(x, y, SubCell { height: 0, walkable: false });
-        }
-    }
+fn setup_world(mut commands: Commands, zone: Res<ZoneSeed>) {
+    // Walkmap regenerada deterministicamente da receita (seed) — reprodutível (DoD #6).
+    let map = build_walkmap(&zone);
     commands.insert_resource(map);
 
     commands.spawn((
@@ -78,7 +80,7 @@ fn setup_world(mut commands: Commands) {
         Patrol::new(vec![(245, 10), (10, 10)]),
         Replicated,
     ));
-    info!("mundo carregado: walkmap 64x64 (1 parede) + 1 NPC patrulhando via A*");
+    info!("mundo carregado: walkmap da seed + 1 NPC patrulhando via A*");
 }
 
 /// Cria o `RenetServer` + transporte netcode e os insere como recursos.

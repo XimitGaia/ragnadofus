@@ -11,6 +11,7 @@ publish = false
 [dependencies]
 bevy = { workspace = true, features = ["std"] }
 serde = { workspace = true }
+thiserror = { workspace = true }
 # Protocolo de replicação (registro de componentes/eventos) compartilhado cliente↔servidor.
 bevy_replicon = { workspace = true }
 
