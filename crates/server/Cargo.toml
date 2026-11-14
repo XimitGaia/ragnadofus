@@ -10,7 +10,10 @@ publish = false
 # que o fecho de dependências de `server` não contém `bevy_render`.
 [dependencies]
 shared = { path = "../shared" }
-bevy = { workspace = true, features = ["std", "multi_threaded"] }
+bevy = { workspace = true, features = ["std", "multi_threaded", "bevy_state", "bevy_log"] }
+bevy_replicon = { workspace = true }
+bevy_replicon_renet2 = { workspace = true }
+anyhow = { workspace = true }
 
 [lints]
 workspace = true

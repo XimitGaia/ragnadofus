@@ -1,22 +1,124 @@
-//! Servidor headless do ragnadofus (esqueleto do Passo 1).
+//! Servidor headless autoritativo do ragnadofus (Passo 4).
 //!
-//! Bevy com `MinimalPlugins` — **sem renderer**. A autoridade do servidor (mover,
-//! colidir, A* do NPC, replicação via replicon) entra nos Passos 4–5. Aqui só provamos
-//! que o binário do servidor compila e sobe sobre o mesmo `shared`/ECS do cliente, sem
-//! arrastar `bevy_render`.
+//! Bevy `MinimalPlugins` (sem renderer) + `replicon` (servidor) + transporte `renet2`
+//! (UDP). É o dono do estado: ao conectar um cliente, spawna o player dele; recebe o
+//! `MoveCommand` (só intenção), valida/aplica como `MoveIntent`, simula em `FixedUpdate`
+//! (reusa o `SharedPlugin`) e replica `Position`/`Player` a todos os clientes.
+//!
+//! Porta via env `RAGNADOFUS_PORT` (default 5000). Bind em `0.0.0.0` para o deploy em
+//! container/LAN; localhost serve para o teste entre instâncias locais.
 
 use bevy::app::ScheduleRunnerPlugin;
 use bevy::prelude::*;
-use shared::SharedPlugin;
-use std::time::Duration;
+use bevy::state::app::StatesPlugin;
+use bevy_replicon::prelude::*;
+use bevy_replicon_renet2::{
+    netcode::{NativeSocket, NetcodeServerTransport, ServerAuthentication, ServerSetupConfig},
+    renet2::{ConnectionConfig, RenetServer},
+    RenetChannelsExt, RepliconRenetPlugins,
+};
+use shared::{MoveCommand, MoveIntent, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::time::{Duration, SystemTime};
 
-fn main() {
-    // ~64 Hz é o alvo do loop de simulação (RFC 0005). O tick de rede (20–30 Hz) será
-    // distinto e entra com o replicon.
-    let tick_period = Duration::from_secs_f64(1.0 / 64.0);
+const DEFAULT_PORT: u16 = 5000;
+const MAX_CLIENTS: usize = 16;
 
-    App::new()
-        .add_plugins(MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(tick_period)))
-        .add_plugins(SharedPlugin)
-        .run();
+/// Dono da entidade (server-only, NÃO replicado): liga um [`ClientId`] à entidade do
+/// seu player, para rotear o `MoveCommand` à entidade certa.
+#[derive(Component, Clone, Copy)]
+struct Owner(ClientId);
+
+fn main() -> anyhow::Result<()> {
+    let port = std::env::var("RAGNADOFUS_PORT")
+        .ok()
+        .and_then(|s| s.parse::<u16>().ok())
+        .unwrap_or(DEFAULT_PORT);
+
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(Duration::from_secs_f64(1.0 / 64.0))),
+        StatesPlugin,
+        bevy::log::LogPlugin::default(),
+        RepliconPlugins,
+        RepliconRenetPlugins,
+    ))
+    .add_plugins((ProtocolPlugin, SharedPlugin))
+    .add_observer(on_client_connected)
+    .add_observer(on_client_disconnected)
+    .add_observer(on_move_command);
+
+    setup_server(&mut app, port)?;
+    info!("servidor ragnadofus ouvindo em 0.0.0.0:{port}");
+    app.run();
+    Ok(())
+}
+
+/// Cria o `RenetServer` + transporte netcode e os insere como recursos.
+fn setup_server(app: &mut App, port: u16) -> anyhow::Result<()> {
+    let channels = app.world().resource::<RepliconChannels>();
+    let server = RenetServer::new(ConnectionConfig::from_channels(
+        channels.server_configs(),
+        channels.client_configs(),
+    ));
+
+    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+    let public_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port);
+    let socket = UdpSocket::bind(public_addr)?;
+    let setup = ServerSetupConfig {
+        current_time,
+        max_token_lifetime: 5,
+        max_clients: MAX_CLIENTS,
+        protocol_id: shared::protocol::PROTOCOL_ID,
+        authentication: ServerAuthentication::Unsecure,
+        socket_addresses: vec![vec![public_addr]],
+    };
+    let native = NativeSocket::new(socket).map_err(|e| anyhow::anyhow!("socket: {e:?}"))?;
+    let transport = NetcodeServerTransport::new(setup, native)?;
+
+    app.insert_resource(server);
+    app.insert_resource(transport);
+    Ok(())
+}
+
+/// Ao conectar um cliente, spawna o player autoritativo dele (replicado).
+fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands) {
+    let client_entity = trigger.event().entity;
+    let player_id = PlayerId(client_entity.to_bits());
+    info!("cliente conectado: {client_entity} → player {player_id:?}");
+    commands.spawn((
+        Player(player_id),
+        Position(Vec2::ZERO),
+        Velocity(Vec2::ZERO),
+        MoveIntent(Vec2::ZERO),
+        Owner(ClientId::Client(client_entity)),
+        Replicated,
+    ));
+}
+
+/// Ao desconectar, remove o player do cliente.
+fn on_client_disconnected(
+    trigger: On<Remove<ConnectedClient>>,
+    mut commands: Commands,
+    players: Query<(Entity, &Owner)>,
+) {
+    let who = ClientId::Client(trigger.event().entity);
+    for (entity, owner) in &players {
+        if owner.0 == who {
+            commands.entity(entity).despawn();
+        }
+    }
+}
+
+/// Aplica o comando de movimento recebido do cliente à `MoveIntent` do player dele.
+/// O servidor é a autoridade: só traduz intenção; a simulação roda no `SharedPlugin`.
+fn on_move_command(
+    trigger: On<FromClient<MoveCommand>>,
+    mut players: Query<(&Owner, &mut MoveIntent)>,
+) {
+    for (owner, mut intent) in &mut players {
+        if owner.0 == trigger.client_id {
+            intent.0 = trigger.message.0;
+        }
+    }
 }

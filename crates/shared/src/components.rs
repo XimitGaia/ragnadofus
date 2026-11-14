@@ -4,17 +4,20 @@
 
 use crate::ids::PlayerId;
 use bevy::prelude::*;
+use serde::{Deserialize, Serialize};
 
-/// Posição no plano do mundo (a elevação real entra na walkmap do Passo 2/3).
-#[derive(Component, Debug, Clone, Copy, PartialEq)]
-pub struct Position(pub Vec2);
+/// Posição no plano do mundo (a elevação real entra na walkmap do Passo 2/3). Replicada
+/// do servidor aos clientes (P4) — `Vec2` serializado como `(f32, f32)`.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Position(#[serde(with = "crate::serde_helpers::vec2")] pub Vec2);
 
 /// Velocidade atual da entidade.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct Velocity(pub Vec2);
 
-/// Marker + id estável de um jogador.
-#[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
+/// Marker + id estável de um jogador. Replicado (P4) para o cliente saber que a
+/// entidade é um jogador.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Player(pub PlayerId);
 
 /// Marker do NPC controlado pelo servidor (A* replicado — D2.4).

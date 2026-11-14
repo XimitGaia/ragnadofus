@@ -1,61 +1,101 @@
-//! Cliente desktop do ragnadofus (Passo 2, fatia 2b).
+//! Cliente desktop do ragnadofus (Passo 4 — em rede).
 //!
-//! Zona 2.5D isométrica (`bevy_ecs_tilemap`, 64×64, diamante — D2.1/D1.5) + câmera que
-//! segue o player com upscale (~2×, nearest). O player (quad placeholder, sem asset/IP)
-//! anda **localmente** por WASD/setas ou clique direito. A simulação (intenção →
-//! velocidade → posição) roda no `SharedPlugin`, em `FixedUpdate`.
+//! Conecta a um servidor autoritativo (`replicon` + `renet2`/UDP), envia o input como
+//! `MoveCommand` (só intenção) e **renderiza as entidades replicadas** (players) na zona
+//! 2.5D isométrica. Não roda a simulação — a autoridade é do servidor.
 //!
-//! Elevação real (walkmap 4×4 + colisão `avian2d`), y-sort fino e oclusão por fade
-//! (D1.3) entram no Passo 3. Rede (autoridade do servidor) no Passo 4.
+//! Servidor via env `RAGNADOFUS_SERVER` (ex.: `127.0.0.1:5000`; default localhost:5000).
+//! Para o teste multiplayer: suba o `server` e abra 2+ instâncias deste `client`.
+//!
+//! Câmera estática centrada na zona (seguir o próprio player + clique-pra-mover voltam
+//! quando a identidade do próprio player for replicada / com A* no servidor — Passo 5).
 
 use bevy::prelude::*;
 use bevy_ecs_tilemap::prelude::*;
-use shared::{MoveIntent, Player, PlayerId, Position, SharedPlugin, Velocity};
+use bevy_replicon::prelude::*;
+use bevy_replicon_renet2::{
+    netcode::{ClientAuthentication, NativeSocket, NetcodeClientTransport},
+    renet2::{ConnectionConfig, RenetClient},
+    RenetChannelsExt, RepliconRenetPlugins,
+};
+use shared::{MoveCommand, Player, Position, ProtocolPlugin};
+use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
+use std::time::SystemTime;
 
-/// Distância (px) para considerar que chegou ao destino clicado.
-const ARRIVE_EPS: f32 = 2.0;
+const DEFAULT_SERVER: &str = "127.0.0.1:5000";
 
-/// Destino de movimento por clique (client-only; no servidor vira ordem validada +
-/// pathfinding — Passo 4/5). Para onde o player caminha em linha reta.
-#[derive(Component, Debug, Clone, Copy)]
-struct MoveTarget(Vec2);
+fn main() -> anyhow::Result<()> {
+    let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or_else(|| DEFAULT_SERVER.parse().unwrap_or(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 5000)));
 
-fn main() {
-    App::new()
-        .add_plugins(
-            DefaultPlugins
-                // nearest-neighbor: pré-requisito de pixel-art.
-                .set(ImagePlugin::default_nearest())
-                // assets ficam com o crate do cliente, independente do CWD.
-                .set(AssetPlugin {
-                    file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").to_string(),
-                    ..default()
-                }),
-        )
-        .add_plugins(TilemapPlugin)
-        .add_plugins(SharedPlugin)
-        .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (read_right_click, update_intent, sync_sprite_to_position, camera_follow).chain(),
-        )
-        .run();
+    let mut app = App::new();
+    app.add_plugins(
+        DefaultPlugins
+            .set(ImagePlugin::default_nearest())
+            .set(AssetPlugin {
+                file_path: concat!(env!("CARGO_MANIFEST_DIR"), "/assets").to_string(),
+                ..default()
+            }),
+    )
+    .add_plugins(TilemapPlugin)
+    .add_plugins((RepliconPlugins, RepliconRenetPlugins))
+    .add_plugins(ProtocolPlugin)
+    .add_systems(Startup, setup_scene)
+    .add_systems(Update, (read_input, hydrate_players, sync_transforms).chain());
+
+    connect(&mut app, server_addr)?;
+    info!("cliente ragnadofus conectando a {server_addr}");
+    app.run();
+    Ok(())
 }
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
-    commands.spawn(Camera2d);
+/// Cria o `RenetClient` + transporte netcode e os insere como recursos.
+fn connect(app: &mut App, server_addr: SocketAddr) -> anyhow::Result<()> {
+    let channels = app.world().resource::<RepliconChannels>();
+    let client = RenetClient::new(
+        ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
+        false,
+    );
 
-    // Zona 2.5D: 64×64 tiles isométricos diamante (D2.1/D1.5), chão de grama placeholder.
+    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
+    let client_id = current_time.as_millis() as u64;
+    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
+    let authentication = ClientAuthentication::Unsecure {
+        client_id,
+        protocol_id: shared::protocol::PROTOCOL_ID,
+        socket_id: 0,
+        server_addr,
+        user_data: None,
+    };
+    let native = NativeSocket::new(socket).map_err(|e| anyhow::anyhow!("socket: {e:?}"))?;
+    let transport = NetcodeClientTransport::new(current_time, authentication, native)?;
+
+    app.insert_resource(client);
+    app.insert_resource(transport);
+    Ok(())
+}
+
+/// Câmera estática + zona 2.5D isométrica (64×64, igual à fatia 2b).
+fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+    commands.spawn((
+        Camera2d,
+        Projection::Orthographic(OrthographicProjection {
+            scale: 0.5,
+            ..OrthographicProjection::default_2d()
+        }),
+    ));
+
     let texture: Handle<Image> = asset_server.load("tiles.png");
     let map_size = TilemapSize { x: 64, y: 64 };
     let mut storage = TileStorage::empty(map_size);
     let tilemap_entity = commands.spawn_empty().id();
-    let tilemap_id = TilemapId(tilemap_entity);
     fill_tilemap_rect(
         TileTextureIndex(0),
         TilePos { x: 0, y: 0 },
         map_size,
-        tilemap_id,
+        TilemapId(tilemap_entity),
         &mut commands,
         &mut storage,
     );
@@ -70,21 +110,10 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         anchor: TilemapAnchor::Center,
         ..default()
     });
-
-    // Player local placeholder: quad colorido com z alto (acima do chão). y-sort fino
-    // contra objetos/elevação vem no Passo 3.
-    commands.spawn((
-        Player(PlayerId(1)),
-        Position(Vec2::ZERO),
-        Velocity(Vec2::ZERO),
-        MoveIntent(Vec2::ZERO),
-        Sprite::from_color(Color::srgb(0.9, 0.3, 0.3), Vec2::new(16.0, 24.0)),
-        Transform::from_xyz(0.0, 0.0, 100.0),
-    ));
 }
 
-/// Direção de teclado (WASD/setas), não normalizada (o `shared` normaliza).
-fn keyboard_dir(keys: &ButtonInput<KeyCode>) -> Vec2 {
+/// Lê WASD/setas e envia o comando de movimento ao servidor (só quando há direção).
+fn read_input(mut commands: Commands, keys: Res<ButtonInput<KeyCode>>) {
     let mut dir = Vec2::ZERO;
     if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
         dir.y += 1.0;
@@ -98,83 +127,30 @@ fn keyboard_dir(keys: &ButtonInput<KeyCode>) -> Vec2 {
     if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
         dir.x += 1.0;
     }
-    dir
-}
-
-/// Clique direito → define um destino (convertendo o cursor da tela para o mundo).
-fn read_right_click(
-    buttons: Res<ButtonInput<MouseButton>>,
-    windows: Query<&Window>,
-    cameras: Query<(&Camera, &GlobalTransform)>,
-    players: Query<Entity, With<Player>>,
-    mut commands: Commands,
-) {
-    if !buttons.just_pressed(MouseButton::Right) {
-        return;
-    }
-    let (Ok(window), Ok((camera, camera_tf)), Ok(player)) =
-        (windows.single(), cameras.single(), players.single())
-    else {
-        return;
-    };
-    let Some(cursor) = window.cursor_position() else {
-        return;
-    };
-    let Ok(world) = camera.viewport_to_world_2d(camera_tf, cursor) else {
-        return;
-    };
-    commands.entity(player).insert(MoveTarget(world));
-}
-
-/// Calcula a intenção de movimento: teclado tem prioridade (e cancela o destino do
-/// clique); senão, caminha em direção ao `MoveTarget` até chegar.
-fn update_intent(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut players: Query<(Entity, &Position, &mut MoveIntent, Option<&MoveTarget>), With<Player>>,
-    mut commands: Commands,
-) {
-    let kb = keyboard_dir(&keys);
-    for (entity, position, mut intent, target) in &mut players {
-        if kb != Vec2::ZERO {
-            intent.0 = kb;
-            if target.is_some() {
-                commands.entity(entity).remove::<MoveTarget>();
-            }
-        } else if let Some(target) = target {
-            let to_target = target.0 - position.0;
-            if to_target.length() <= ARRIVE_EPS {
-                intent.0 = Vec2::ZERO;
-                commands.entity(entity).remove::<MoveTarget>();
-            } else {
-                intent.0 = to_target; // shared normaliza
-            }
-        } else {
-            intent.0 = Vec2::ZERO;
-        }
+    if dir != Vec2::ZERO {
+        commands.client_trigger(MoveCommand(dir.normalize_or_zero()));
     }
 }
 
-/// Espelha a `Position` (autoritativa da simulação) no `Transform` de render (mantém z).
-fn sync_sprite_to_position(mut query: Query<(&Position, &mut Transform)>) {
-    for (position, mut transform) in &mut query {
+/// Dá corpo visual (sprite) a cada player replicado que ainda não tem — cor derivada do
+/// `PlayerId` para distinguir jogadores.
+fn hydrate_players(mut commands: Commands, players: Query<(Entity, &Player), Without<Sprite>>) {
+    for (entity, player) in &players {
+        let id = player.0 .0;
+        let r = ((id >> 16) & 0xFF) as f32 / 255.0;
+        let g = ((id >> 8) & 0xFF) as f32 / 255.0;
+        let b = (id & 0xFF) as f32 / 255.0;
+        commands.entity(entity).insert((
+            Sprite::from_color(Color::srgb(0.3 + 0.6 * r, 0.3 + 0.6 * g, 0.3 + 0.6 * b), Vec2::new(16.0, 24.0)),
+            Transform::from_xyz(0.0, 0.0, 100.0),
+        ));
+    }
+}
+
+/// Espelha a `Position` replicada no `Transform` de render (mantém z).
+fn sync_transforms(mut players: Query<(&Position, &mut Transform), With<Player>>) {
+    for (position, mut transform) in &mut players {
         transform.translation.x = position.0.x;
         transform.translation.y = position.0.y;
-    }
-}
-
-/// A câmera segue o player e aplica o upscale (~2×) da pixel-art.
-fn camera_follow(
-    players: Query<&Position, With<Player>>,
-    mut cameras: Query<(&mut Transform, &mut Projection), (With<Camera2d>, Without<Player>)>,
-) {
-    let Ok(player) = players.single() else {
-        return;
-    };
-    for (mut transform, mut projection) in &mut cameras {
-        transform.translation.x = player.0.x;
-        transform.translation.y = player.0.y;
-        if let Projection::Orthographic(ortho) = &mut *projection {
-            ortho.scale = 0.5;
-        }
     }
 }

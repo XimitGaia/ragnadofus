@@ -15,6 +15,11 @@ bevy = { version = "0.20", default-features = false }
 serde = { version = "1", features = ["derive"] }
 anyhow = "1"
 serde_json = "1"
+# Rede (P4): replicon (servidor-autoritativo) + transporte renet2/UDP. default-features
+# dessas crates NÃO puxam bevy_render (verificado no spike) — server segue headless.
+bevy_replicon = "0.45"
+# native_transport: habilita o NativeSocket/UDP (não vem no default do crate).
+bevy_replicon_renet2 = { version = "1.0", features = ["native_transport"] }
 
 # Gate de qualidade: unwrap/expect banidos via Clippy (padroes §1). Vale para todo o
 # workspace; cada crate herda com `[lints] workspace = true`.
