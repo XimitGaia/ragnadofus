@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/A1-base-engine.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §1
 
 ## 1. Problema e contexto
 Precisamos de uma base de runtime (ECS, janela, input, asset pipeline, render) para
@@ -44,6 +45,12 @@ Resumo (detalhe e URLs em `A1-base-engine.md`):
 no lugar de `bevy_render` (padrão Tiny Glade/Tunnet), não como reescrita de engine.
 Começar usando o render padrão do Bevy + `bevy_ecs_tilemap` (RFC 0002) e substituir
 por partes só com evidência de ganho.
+
+**Padrão de arquitetura (P1):** workspace com **grafo de crates unidirecional**
+(`client → shared`, `server → shared`; nunca `shared → *` nem `client ↔ server`).
+`shared` é o ECS do jogo em Bevy puro, **sem `bevy_render`**; o **servidor compila sem
+renderer**, provando o desacoplamento a cada build (apoiado no decoupling de
+`bevy_render` desde Bevy 0.17). Verificar o grafo com `cargo deny`/`cargo tree` no CI.
 
 ## 6. Impacto e riscos
 Condiciona RFC 0002 (render), 0005 (mesmo ECS no servidor) e 0006 (BRP/headless do Bevy).

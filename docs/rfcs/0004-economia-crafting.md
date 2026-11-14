@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/C2-economia-crafting.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §3
 - **Depende de:** RFC 0005 (autoridade/persistência no servidor)
 
 ## 1. Problema e contexto
@@ -42,8 +43,11 @@ Mercado/casa de leilões; durabilidade/sinks; mais profissões; qualidade/rarida
 nós contestados vs instanciados.
 
 ## 6. Impacto e riscos
-Depende inteiramente da autoridade e persistência da RFC 0005. **Risco:** sem um
-**sink** de itens, o mercado satura.
+Depende inteiramente da autoridade e persistência da RFC 0005.
+**Requisito de design (P3):** o *sink* **não é opcional** — "os jogadores são a
+simulação econômica", e **todo item craftado precisa de uma razão para ser consumido ou
+perdido**, senão o mercado satura (lição de EVE/Albion vs. Ultima Online). O *mecanismo*
+do sink pode ser faseado, mas a existência dele é requisito, não ideia.
 
 ## 7. Plano de validação
 - Dois clientes: um colhe minério, outro madeira; um craft exige ambos → força troca.
@@ -51,7 +55,8 @@ Depende inteiramente da autoridade e persistência da RFC 0005. **Risco:** sem u
 - Teste anti-cheat: intenção forjada rejeitada pelo servidor.
 
 ## 8. Questões em aberto
-1. Qual **sink** evita saturação já no MVP (durabilidade agora ou depois?).
+1. **Qual mecanismo de sink** (durabilidade, consumo, perda em morte…) e em que fase —
+   a *existência* do sink já é requisito (ver §6).
 2. **Mercado** na v1 ou só troca direta/visibilidade?
 3. Nó de recurso **compartilhado-contestado vs instanciado** por jogador.
 > Fontes oficiais de Dofus ficaram parcialmente bloqueadas (402/403) — confirmar

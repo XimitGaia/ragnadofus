@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/B3-movimento-navegacao.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §2
 - **Depende de:** RFC 0001 · **Condiciona:** RFC 0002 (elevação), RFC 0005 (física no servidor)
 
 ## 1. Problema e contexto
@@ -49,7 +50,10 @@ instancia um grid lógico sobre o mesmo espaço.
 
 ## 6. Impacto e riscos
 A escolha de "alturas de canto" alimenta diretamente o y-sort da RFC 0002 e a física
-autoritativa no servidor (RFC 0005). **Incertezas:** (1) física geométrica por agente
+autoritativa no servidor (RFC 0005). **Padrão (P2):** o **broadphase/spatial-hash do
+`avian2d`** será **reusado pelo interest management** do servidor (AOI = célula + 8
+vizinhas, RFC 0005) — manter a física acessível no servidor e indexada espacialmente,
+não só para colisão mas como base da área de interesse. **Incertezas:** (1) física geométrica por agente
 pode **não escalar** no servidor — walkmap + A* talvez escale melhor (falta benchmark
 do nº-alvo de agentes/mapa); (2) maturidade de navmesh dinâmico 2D em Rust/Bevy;
 (3) parâmetros abertos: resolução sub-tile, limiar de altura/diagonal intransponível,

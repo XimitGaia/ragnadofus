@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/E1-harness-ia.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §4 e §5
 - **Depende de:** RFC 0001
 
 ## 1. Problema e contexto
@@ -37,11 +38,20 @@ Resumo (detalhe e URLs em `E1-harness-ia.md`):
 2. **Captura de screenshot headless** — artefato obrigatório em mudança visual.
 3. **BRP em dev** — inspeção/mutação do ECS.
 4. **Núcleo determinístico** — `FixedUpdate` + seed; sessão reproduzível (seed+inputs+versão).
+5. **Runner `xtask`** (`cargo run -p ci`) como forma canônica de rodar o gate —
+   garante **local == CI** (P4).
+6. **Forbidden-path (anti reward-hacking, P5):** o agente **não edita** o que o avalia
+   (testes, baselines, o próprio gate). "Agentes entregam o que você verifica."
+
+> **Reconciliação com a Demo 01 (D5.1):** na demo, **só o componente 1** (gate
+> build+teste via xtask) é obrigatório; 5 e 6 já valem (baratos); 2–4 entram em fases
+> seguintes.
 
 ## 5. Decisão proposta
-Implementar os 4 componentes acima como esqueleto executável **desde o início do MVP**.
-Fases seguintes (P1): visual-diff contra baseline com tolerância; `bevy_mcp_harness`/
-MCP p/ injeção de input e playtest; revisor L3.
+**Demo 01 (D5.1):** gate `cargo build && cargo test` headless via **`xtask`** + regra de
+**forbidden-path**. Fases seguintes: screenshot headless, BRP, núcleo determinístico,
+visual-diff contra baseline com tolerância, `bevy_mcp_harness`/MCP p/ injeção de input e
+playtest; revisor L3.
 
 ## 6. Impacto e riscos
 Usa o Bevy headless (RFC 0001) — mesmo runtime do servidor (RFC 0005). **Incertezas:**
@@ -57,5 +67,7 @@ verificável.
 - Reproduzir um bug a partir de seed+inputs gravados.
 
 ## 8. Questões em aberto
-Visual-diff próprio e sua tolerância; estabilidade de headless+GPU no CI; fronteira do
-núcleo determinístico; alinhar versão de Bevy do tooling (mira 0.19–0.20) com a do projeto.
+Visual-diff próprio e sua tolerância; estabilidade de headless+GPU no CI; **fronteira do
+núcleo determinístico** e o **contrato `(seed, rules_version, engine_version)`** (cruza
+com RFC 0005 e P6 — deve ser testado, não assumido); como o gate **co-evolui e endurece**
+contra reward-hacking; alinhar versão de Bevy do tooling (mira 0.19–0.20) com a do projeto.

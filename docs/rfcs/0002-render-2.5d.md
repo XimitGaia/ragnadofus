@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/A2-render-2.5d.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §6
 - **Depende de:** RFC 0001
 
 ## 1. Problema e contexto
@@ -55,6 +56,9 @@ nosso; (3) depth buffer × alpha dos sprites pode gerar halos (sombras/água).
 - Decidir "fake height" vs elevação real **antes** de fechar o modelo de dados (RFC 0003).
 
 ## 8. Questões em aberto
-- Elevação real (geométrica) vs 2.5D "fake height"?
+- ~~Elevação real vs "fake height"?~~ **Decidido (D1.1): elevação real geométrica.**
 - Nº de camadas que `bevy_ecs_tilemap` sustenta no nosso caso.
 - Tratamento de transparência/halos no depth buffer.
+- **Convergência com PCG (P6):** mundo representado como **índices** (tiles + paleta
+  indexada) casa com os palette shaders deste doc — manter essa forma de dados mesmo
+  antes de usar palette swapping, para não inviabilizar a representação compacta (A3).

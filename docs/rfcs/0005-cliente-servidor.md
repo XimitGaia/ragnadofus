@@ -6,6 +6,7 @@
 - **Autor(es):** equipe + pesquisa (agente)
 - **Data:** 2026-11-14
 - **Pesquisa-fonte:** `../../pesquisa/D1-cliente-servidor.md`
+- **Padrões aplicáveis:** `../padroes-engenharia-e-design.md` §2
 - **Depende de:** RFC 0001 · **Condiciona:** RFC 0003 (física no servidor), RFC 0004 (autoridade)
 
 ## 1. Problema e contexto
@@ -50,6 +51,19 @@ Cliente (Bevy)  ──intenções──►  Servidor (Bevy headless, FixedUpdate
                                         └── write-behind ──► PostgreSQL (durável)
 ```
 
+### Padrões de netcode a mirar (P2 — alvo do DT-01, além da demo)
+- **Netcode por classe de entidade:** avatar próprio = prediction + reconciliation;
+  outros jogadores/mobs = snapshot interpolation (~100 ms); mundo em massa = state sync
+  com priority accumulator + delta compression.
+- **Dois ticks distintos:** simulação em `FixedUpdate` (~64 Hz) ≠ **tick de rede**
+  (~20–30 Hz). Não confundir.
+- **Interest management** em grid/spatial-hash (AOI = célula + 8 vizinhas), **reusando o
+  broadphase do `avian2d`** (RFC 0003); vira visibility filter e também é anti-wallhack.
+- **Migração DT-01** replicon → `lightyear` 0.31 (compatível com Bevy 0.20, construído
+  sobre replicon) em **6 fases incrementais**, cada uma com gate de verificação.
+- **Contrato de determinismo** `(seed, rules_version, engine_version)` persistido junto
+  ao estado — necessário para rollback e reprodutibilidade (cruza com RFC 0006 e P6).
+
 ## 6. Impacto e riscos
 É a espinha dorsal: RFC 0003 (física autoritativa) e 0004 (transações) rodam aqui.
 **3 incertezas:** (1) adotar `lightyear` (churn de API 0.x) **vs** replicon puro +
@@ -64,5 +78,7 @@ Bevy ↔ lightyear ↔ aeronet ↔ replicon.
 - Teste de durabilidade: matar o servidor e recuperar o estado do Postgres.
 
 ## 8. Questões em aberto
-`lightyear` vs predição própria; UDP vs QUIC (WASM?); grau de determinismo exigível;
-matriz de versões compatíveis.
+Parâmetros de interest management (tamanho de célula, histerese na transição); tick de
+rede exato (20–30 Hz); UDP vs QUIC (WASM — DT-02); matriz de versões compatíveis
+Bevy ↔ replicon ↔ lightyear ↔ avian. _`lightyear` vs predição própria_ foi resolvido
+por P2: **lightyear** é o caminho (construído sobre replicon, 6 fases).
