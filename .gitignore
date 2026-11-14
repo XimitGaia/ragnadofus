@@ -1,0 +1,25 @@
+# Rust
+/target/
+**/*.rs.bk
+Cargo.lock.orig
+
+# Bevy / assets temporários
+/assets/**/*.import
+imported_assets/
+
+# Banco local / artefatos de dev
+*.sqlite
+*.sqlite-*
+*.db
+
+# Harness (screenshots/artefatos de verificação)
+/artifacts/
+/screenshots/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*~
