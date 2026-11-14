@@ -28,11 +28,21 @@ pub fn velocity_from_intent(mut query: Query<(&MoveIntent, &mut Velocity)>) {
     }
 }
 
-/// Integra as posições pela velocidade, no passo fixo.
-pub fn integrate_positions(time: Res<Time<Fixed>>, mut query: Query<(&Velocity, &mut Position)>) {
+/// Integra as posições pela velocidade, no passo fixo. Se houver uma [`Walkmap`]
+/// carregada, o passo é resolvido contra a elevação/caminhabilidade (D1.1/D2.2/D2.3);
+/// sem walkmap, o movimento é livre (fatias 2a/2b).
+pub fn integrate_positions(
+    time: Res<Time<Fixed>>,
+    map: Option<Res<crate::walkmap::Walkmap>>,
+    mut query: Query<(&Velocity, &mut Position)>,
+) {
     let dt = time.delta_secs();
     for (velocity, mut position) in &mut query {
-        position.0 = step_position(position.0, velocity.0, dt);
+        let desired = step_position(position.0, velocity.0, dt);
+        position.0 = match map.as_deref() {
+            Some(map) => crate::walkmap::resolve_move(map, position.0, desired),
+            None => desired,
+        };
     }
 }
 

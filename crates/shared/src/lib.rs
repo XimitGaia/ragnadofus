@@ -14,11 +14,13 @@ pub mod components;
 pub mod ids;
 pub mod movement;
 pub mod network;
+pub mod walkmap;
 
 pub use components::{MoveIntent, Npc, Player, Position, Velocity};
 pub use ids::{PlayerId, Tick};
 pub use movement::{MovementSet, WALK_SPEED};
 pub use network::{ClientMessage, ServerMessage};
+pub use walkmap::{resolve_move, SubCell, Walkmap};
 
 /// Plugin raiz do ECS compartilhado. No Passo 1 é um esqueleto; sistemas de simulação
 /// (`FixedUpdate`), replicação e componentes de gameplay entram nos passos seguintes.
