@@ -1,0 +1,40 @@
+# Deployment do servidor headless (P7). 1 réplica = a única zona do MVP (RFC 0005).
+# Troque a imagem pelo seu registry antes do apply.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ragnadofus-server
+  labels:
+    app: ragnadofus-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ragnadofus-server
+  template:
+    metadata:
+      labels:
+        app: ragnadofus-server
+    spec:
+      containers:
+        - name: server
+          image: REGISTRY/ragnadofus-server:latest # <- publique no seu registry
+          env:
+            - name: RAGNADOFUS_PORT
+              value: "5000"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: ragnadofus-db
+                  key: database-url
+          ports:
+            - name: game-udp
+              containerPort: 5000
+              protocol: UDP
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"

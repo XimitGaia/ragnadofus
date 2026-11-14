@@ -1,0 +1,27 @@
+# Stack local do servidor (P7) — teste entre devs sem o cluster (cluster = depois).
+# `docker compose up --build` sobe Postgres + servidor; os clientes desktop locais
+# apontam para `127.0.0.1:5000/udp` (RAGNADOFUS_SERVER=127.0.0.1:5000).
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ragnadofus
+      POSTGRES_PASSWORD: ragnadofus
+      POSTGRES_DB: ragnadofus
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ragnadofus"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  server:
+    build: .
+    environment:
+      DATABASE_URL: postgres://ragnadofus:ragnadofus@postgres:5432/ragnadofus
+      RAGNADOFUS_PORT: "5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "5000:5000/udp"

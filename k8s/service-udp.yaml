@@ -1,0 +1,21 @@
+# Exposição do servidor via MetalLB LoadBalancer UDP (D4.2) — IP de LAN próprio.
+# Kong é L7/HTTP e NÃO serve UDP; por isso um Service type=LoadBalancer dedicado.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ragnadofus-server
+  labels:
+    app: ragnadofus-server
+  annotations:
+    # Opcional: fixar um IP do pool do MetalLB (senão ele atribui automaticamente).
+    # metallb.universe.tf/loadBalancerIPs: "172.168.0.105"
+    {}
+spec:
+  type: LoadBalancer
+  selector:
+    app: ragnadofus-server
+  ports:
+    - name: game-udp
+      protocol: UDP
+      port: 5000
+      targetPort: 5000
