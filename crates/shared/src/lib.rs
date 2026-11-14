@@ -12,10 +12,12 @@ use bevy::prelude::*;
 
 pub mod components;
 pub mod ids;
+pub mod movement;
 pub mod network;
 
-pub use components::{Npc, Player, Position, Velocity};
+pub use components::{MoveIntent, Npc, Player, Position, Velocity};
 pub use ids::{PlayerId, Tick};
+pub use movement::{MovementSet, WALK_SPEED};
 pub use network::{ClientMessage, ServerMessage};
 
 /// Plugin raiz do ECS compartilhado. No Passo 1 é um esqueleto; sistemas de simulação
@@ -23,9 +25,16 @@ pub use network::{ClientMessage, ServerMessage};
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
-    fn build(&self, _app: &mut App) {
-        // Intencionalmente vazio no Passo 1. Marca o ponto de extensão para o núcleo
-        // determinístico em FixedUpdate (D4.4) dos próximos passos.
+    fn build(&self, app: &mut App) {
+        // Núcleo determinístico em FixedUpdate (D4.4): intenção → velocidade → posição,
+        // encadeado para ordem estável. Mesmo conjunto roda no cliente (local, Passo 2)
+        // e no servidor (autoritativo, Passo 4).
+        app.add_systems(
+            FixedUpdate,
+            (movement::velocity_from_intent, movement::integrate_positions)
+                .chain()
+                .in_set(MovementSet),
+        );
     }
 }
 

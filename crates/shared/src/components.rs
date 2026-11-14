@@ -20,3 +20,9 @@ pub struct Player(pub PlayerId);
 /// Marker do NPC controlado pelo servidor (A* replicado — D2.4).
 #[derive(Component, Debug, Clone, Copy, Default)]
 pub struct Npc;
+
+/// Intenção de movimento: a direção desejada (não normalizada). O cliente a escreve a
+/// partir do input; a simulação em `shared` a transforma em [`Velocity`]. É só intenção
+/// — no Passo 4 o servidor passa a validá-la (anti-cheat, padroes §2).
+#[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
+pub struct MoveIntent(pub Vec2);

@@ -22,7 +22,9 @@ Legenda de status: ⬜ pendente · 🔵 em discussão · ✅ decidido
 |---|---|---|---|
 | D1.1 | Elevação real vs fake height | ✅ | **Elevação real (geométrica)** — 4 alturas de canto por tile; altura afeta colisão e sorting |
 | D1.2 | Quantas **camadas** de tilemap | 🔵 | _default provisório:_ 4 (terreno, objetos/elevação, decoração, efeitos) |
-| D1.3 | Transparência/halos no depth buffer | 🔵 | _default provisório:_ adiar (sem sombra/água na demo) |
+| D1.3 | Transparência/halos no depth buffer | ✅ | **Oclusão por fade**: objeto à frente do personagem fica translúcido (clássico iso). Ativa o tratamento antes adiado (implementação no Passo 3) |
+| D1.4 | Ver **interiores** de estruturas cobertas | ✅ | **Fade do telhado** quando o personagem entra na estrutura |
+| D1.5 | **Ângulo** da câmera 2.5D | ✅ | **Isométrico 3/4 clássico** (mostra topo + face frontal; a elevação "lê" bem) |
 
 ## Bloco 2 — Mundo e movimento (RFC 0003)
 | # | Ponto | Status | Decisão |
@@ -31,6 +33,7 @@ Legenda de status: ⬜ pendente · 🔵 em discussão · ✅ decidido
 | D2.2 | Resolução da **walkmap** sub-tile | 🔵 | _default provisório:_ 4×4 (elevação real pede granularidade) |
 | D2.3 | Limiar de altura/diagonal **intransponível** | 🔵 | _default provisório:_ 1 degrau de altura sobe; acima disso bloqueia (ajustar no protótipo) |
 | D2.4 | NPC com pathfinding ou só jogadores? | ✅ | **1 NPC replicado**: movimento calculado no servidor (A* hierárquico sobre a walkmap) e replicado a todos — prova pathfinding **e** autoridade do servidor sobre entidades |
+| D2.5 | **Controle** do personagem | ✅ | **WASD/setas + clique direito do mouse** (ponto-e-anda). Na fatia 2a é linha reta local; vira ordem validada + A* no servidor (Passo 4/5) |
 
 ## Bloco 3 — Loop de jogo (RFC 0004) — ⏭️ FORA DA DEMO (demo = andar + online, sem crafting)
 _Reativar quando a demo evoluir para incluir coleta/crafting._
