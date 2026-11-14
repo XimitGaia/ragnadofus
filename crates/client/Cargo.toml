@@ -1,0 +1,29 @@
+[package]
+name = "client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Cliente desktop COM render. Features curadas à mão (e não a meta-feature `2d`) porque
+# `default_platform` arrasta `bevy_gilrs` (libudev) e a meta `audio` arrasta `bevy_audio`
+# (libasound) — ambos ausentes nesta máquina e desnecessários para a Demo 01. Render de
+# verdade (`bevy_render`, 2D, winit) fica ligado — o gate prova que `bevy_render` está no
+# fecho do cliente. Áudio/gamepad voltam quando libasound2-dev/libudev-dev existirem (ver
+# docs/debito-tecnico.md DT-03).
+[dependencies]
+shared = { path = "../shared" }
+bevy = { workspace = true, features = [
+    "std",
+    "multi_threaded",
+    "default_app",     # async_executor, bevy_asset, bevy_log, bevy_state, reflect_auto_register
+    "2d_bevy_render",  # bevy_render + core_pipeline + sprite_render + 2d_api (bevy_sprite)
+    "bevy_winit",
+    "x11",
+    "wayland",
+    "default_font",
+    "png",
+] }
+
+[lints]
+workspace = true

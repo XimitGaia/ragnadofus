@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = ["crates/shared", "crates/server", "crates/client", "crates/xtask"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+# Bevy fixado em 0.20.x (D5.3). `default-features = false` em TODO lugar: cada crate
+# escolhe exatamente as features que precisa. É o que mantém `shared` e `server` sem
+# `bevy_render` (prova de desacoplamento — ver RFC 0001 §5 / padroes §1).
+[workspace.dependencies]
+bevy = { version = "0.20", default-features = false }
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+serde_json = "1"
+
+# Gate de qualidade: unwrap/expect banidos via Clippy (padroes §1). Vale para todo o
+# workspace; cada crate herda com `[lints] workspace = true`.
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"

@@ -1,0 +1,16 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Runner do GATE (padroes §4 / RFC 0006 §4.5): `cargo run -p xtask ci`. É a forma
+# canônica de rodar o gate — garante "local == CI". `anyhow` é permitido só em binários
+# (padroes §1); `serde_json` lê o grafo via `cargo metadata`.
+[dependencies]
+anyhow = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

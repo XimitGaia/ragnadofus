@@ -1,0 +1,16 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Servidor HEADLESS (RFC 0005): Bevy só com a base ECS/scheduler — `std` + multithread,
+# SEM nenhuma feature de render. `MinimalPlugins` (não `DefaultPlugins`). O gate prova
+# que o fecho de dependências de `server` não contém `bevy_render`.
+[dependencies]
+shared = { path = "../shared" }
+bevy = { workspace = true, features = ["std", "multi_threaded"] }
+
+[lints]
+workspace = true

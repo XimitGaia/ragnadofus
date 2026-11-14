@@ -1,0 +1,12 @@
+# Toolchain fixado para garantir "local == CI" (padroes §4). rust-src é exigido pelo
+# rust-analyzer/code-intel (nosso carro-chefe) para indexar a std.
+#
+# Fixado em 1.100.0 porque Bevy 0.20.x declara MSRV rustc 1.97.1 — o 1.96.1 do ambiente
+# inicial não compila Bevy. Mantém D5.3 (Bevy 0.20.x). Acompanha a filosofia da RFC 0001
+# de atualizar o toolchain periodicamente em vez de congelar.
+# rust-analyzer incluído de propósito: é o carro-chefe do code-intel (inegociável).
+# Sem ele no toolchain fixado, o proxy do rustup responde "Unknown binary" no dir do
+# projeto e o code-intel falha no initialize.
+[toolchain]
+channel = "1.100.0"
+components = ["clippy", "rustfmt", "rust-src", "rust-analyzer"]
