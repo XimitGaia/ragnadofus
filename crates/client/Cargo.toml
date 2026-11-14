@@ -13,6 +13,9 @@ publish = false
 # docs/debito-tecnico.md DT-03).
 [dependencies]
 shared = { path = "../shared" }
+# Tilemap 2.5D (RFC 0002). 0.20.0 depende de bevy com default-features=false (só render),
+# então NÃO reativa audio/gamepad (preserva DT-03). Verificado no spike.
+bevy_ecs_tilemap = "0.20"
 bevy = { workspace = true, features = [
     "std",
     "multi_threaded",

@@ -21,3 +21,6 @@ serde_json = "1"
 [workspace.lints.clippy]
 unwrap_used = "deny"
 expect_used = "deny"
+# Tipos de Query do Bevy ECS acionam type_complexity à toa (é o padrão da CI do próprio
+# Bevy permitir). Silencia só o ruído de ECS; NÃO relaxa o essencial acima.
+type_complexity = "allow"
