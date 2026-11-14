@@ -16,6 +16,7 @@ Visão completa em `README.md` e `docs/sintese.md`.
 |---|---|
 | `docs/sintese.md` | O que estamos construindo + o MVP decidido |
 | `docs/pontos-chave.md` | Backlog de RFCs por eixo e prioridade |
+| `docs/padroes-engenharia-e-design.md` | **Padrões acionáveis** (código, netcode, design, teste, harness, PCG) — referência de qualidade |
 | `docs/rfcs/` | Decisões técnicas/design (uma por arquivo) + processo |
 | `docs/plano-decisoes.md` | Log vivo das decisões (percorrido pergunta a pergunta) |
 | `docs/demo-01-spec.md` | Spec consolidada da demo atual |
