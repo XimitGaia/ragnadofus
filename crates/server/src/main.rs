@@ -18,8 +18,9 @@ use bevy_replicon_renet2::{
     RenetChannelsExt, RepliconRenetPlugins,
 };
 use shared::{
-    build_walkmap, subcell_center, InMemoryRepository, MoveCommand, MoveIntent, Npc, Patrol, Player,
-    PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity, WorldRepository, ZoneSeed,
+    build_walkmap, subcell_center, AssignedPlayer, InMemoryRepository, MoveCommand, MoveIntent, Npc,
+    Patrol, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity, WorldRepository,
+    ZoneSeed,
 };
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
@@ -51,6 +52,7 @@ fn main() -> anyhow::Result<()> {
     .add_plugins((ProtocolPlugin, SharedPlugin))
     .add_systems(Startup, setup_world)
     .add_observer(on_client_connected)
+    .add_observer(on_client_authorized)
     .add_observer(on_client_disconnected)
     .add_observer(on_move_command);
 
@@ -134,6 +136,18 @@ fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands
         Owner(ClientId::Client(client_entity)),
         Replicated,
     ));
+}
+
+/// Quando o cliente é AUTORIZADO (handshake de protocolo OK), avisa-o de qual é o player
+/// dele — a essa altura a replicação já pode fluir (enviar antes, no connect, seria
+/// descartado pré-autorização).
+fn on_client_authorized(trigger: On<Add<AuthorizedClient>>, mut commands: Commands) {
+    let client_entity = trigger.event().entity;
+    let player_id = PlayerId(client_entity.to_bits());
+    commands.server_trigger(ToClients {
+        targets: SendTargets::Single(ClientId::Client(client_entity)),
+        message: AssignedPlayer(player_id),
+    });
 }
 
 /// Ao desconectar, remove o player do cliente.

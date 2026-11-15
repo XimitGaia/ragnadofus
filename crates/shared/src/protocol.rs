@@ -3,12 +3,17 @@
 //! replicados aos clientes; o cliente envia apenas o comando de movimento (intenção).
 
 use crate::components::{Npc, Player, Position};
+use crate::ids::PlayerId;
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// Id de protocolo do netcode. Cliente e servidor PRECISAM usar o mesmo valor.
 pub const PROTOCOL_ID: u64 = 0x5241_474E_4144_4F01; // "RAGNADO" + versão 01
+
+/// Server → cliente: diz ao cliente qual é o player dele (para a câmera seguir).
+#[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct AssignedPlayer(pub PlayerId);
 
 /// Comando de movimento do cliente → servidor. Só a direção desejada (intenção); o
 /// servidor valida e simula (anti-cheat, padroes §2).
@@ -24,6 +29,7 @@ impl Plugin for ProtocolPlugin {
         app.replicate::<Position>()
             .replicate::<Player>()
             .replicate::<Npc>()
-            .add_client_event::<MoveCommand>(Channel::Ordered);
+            .add_client_event::<MoveCommand>(Channel::Ordered)
+            .add_server_event::<AssignedPlayer>(Channel::Ordered);
     }
 }

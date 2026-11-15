@@ -19,11 +19,15 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::{MoveCommand, Npc, Player, Position, ProtocolPlugin};
+use shared::{AssignedPlayer, MoveCommand, Npc, Player, PlayerId, Position, ProtocolPlugin};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::SystemTime;
 
 const DEFAULT_SERVER: &str = "127.0.0.1:5000";
+
+/// Player controlado por este cliente (recebido do servidor via `AssignedPlayer`).
+#[derive(Resource, Default)]
+struct MyPlayer(Option<PlayerId>);
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -50,10 +54,12 @@ fn main() -> anyhow::Result<()> {
     .add_plugins(TilemapPlugin)
     .add_plugins((RepliconPlugins, RepliconRenetPlugins))
     .add_plugins(ProtocolPlugin)
+    .init_resource::<MyPlayer>()
+    .add_observer(on_assigned_player)
     .add_systems(Startup, setup_scene)
     .add_systems(
         Update,
-        (read_input, hydrate_players, hydrate_npcs, sync_transforms).chain(),
+        (read_input, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
     );
 
     connect(&mut app, server_addr)?;
@@ -179,6 +185,30 @@ fn hydrate_npcs(mut commands: Commands, npcs: Query<Entity, (With<Npc>, Without<
 /// Espelha a `Position` replicada (players e NPC) no `Transform` de render (mantém z).
 fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
     for (position, mut transform) in &mut entities {
+        transform.translation.x = position.0.x;
+        transform.translation.y = position.0.y;
+    }
+}
+
+/// Guarda qual player é o deste cliente (recebido do servidor).
+fn on_assigned_player(trigger: On<AssignedPlayer>, mut me: ResMut<MyPlayer>) {
+    me.0 = Some(trigger.event().0);
+    info!("meu player: {:?}", trigger.event().0);
+}
+
+/// A câmera segue o PRÓPRIO player (resolve "o personagem sai do centro").
+fn camera_follow(
+    me: Res<MyPlayer>,
+    players: Query<(&Player, &Position)>,
+    mut cameras: Query<&mut Transform, (With<Camera2d>, Without<Player>)>,
+) {
+    let Some(my_id) = me.0 else {
+        return;
+    };
+    let Some((_, position)) = players.iter().find(|(p, _)| p.0 == my_id) else {
+        return;
+    };
+    for mut transform in &mut cameras {
         transform.translation.x = position.0.x;
         transform.translation.y = position.0.y;
     }

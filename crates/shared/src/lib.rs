@@ -27,7 +27,7 @@ pub use movement::{MovementSet, WALK_SPEED};
 pub use network::{ClientMessage, ServerMessage};
 pub use npc::Patrol;
 pub use pathfinding::find_path;
-pub use protocol::{MoveCommand, ProtocolPlugin};
+pub use protocol::{AssignedPlayer, MoveCommand, ProtocolPlugin};
 pub use walkmap::{resolve_move, subcell_center, SubCell, Walkmap};
 pub use world::{build_walkmap, InMemoryRepository, RepoError, WorldRepository, ZoneSeed};
 
