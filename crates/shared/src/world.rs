@@ -3,12 +3,13 @@
 //! [`WorldRepository`] (backend trocável — Postgres, memória, etc.).
 
 use crate::walkmap::{SubCell, Walkmap};
-use bevy::prelude::Resource;
+use bevy::prelude::{Event, Resource};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// Receita reprodutível da zona. Persistida; a geometria é derivada dela.
-#[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Receita reprodutível da zona. Persistida; a geometria é derivada dela. Também é
+/// enviada ao cliente (server event) para ele reconstruir a walkmap e desenhar a zona.
+#[derive(Resource, Event, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ZoneSeed {
     pub seed: u64,
     pub tiles_x: u32,

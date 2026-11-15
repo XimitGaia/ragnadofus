@@ -21,7 +21,9 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::{AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin};
+use shared::{
+    build_walkmap, AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin, ZoneSeed,
+};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::SystemTime;
 
@@ -30,6 +32,10 @@ const DEFAULT_SERVER: &str = "127.0.0.1:5000";
 /// Player controlado por este cliente (recebido do servidor via `AssignedPlayer`).
 #[derive(Resource, Default)]
 struct MyPlayer(Option<PlayerId>);
+
+/// Evita redesenhar a zona se a `ZoneSeed` chegar mais de uma vez.
+#[derive(Resource, Default)]
+struct ZoneBuilt(bool);
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -57,7 +63,9 @@ fn main() -> anyhow::Result<()> {
     .add_plugins((RepliconPlugins, RepliconRenetPlugins))
     .add_plugins(ProtocolPlugin)
     .init_resource::<MyPlayer>()
+    .init_resource::<ZoneBuilt>()
     .add_observer(on_assigned_player)
+    .add_observer(on_zone_received)
     .add_systems(Startup, setup_scene)
     .add_systems(
         Update,
@@ -97,8 +105,8 @@ fn connect(app: &mut App, server_addr: SocketAddr) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Câmera estática + zona 2.5D isométrica (64×64, igual à fatia 2b).
-fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
+/// Só a câmera. A zona é desenhada quando a `ZoneSeed` chega do servidor.
+fn setup_scene(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Projection::Orthographic(OrthographicProjection {
@@ -106,15 +114,31 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
             ..OrthographicProjection::default_2d()
         }),
     ));
+}
 
+/// Recebe a receita da zona e desenha o tilemap 2.5D: xadrez no chão caminhável, **tile
+/// de pedra nas paredes** (reconstruindo a mesma walkmap do servidor a partir da seed).
+fn on_zone_received(
+    trigger: On<ZoneSeed>,
+    mut built: ResMut<ZoneBuilt>,
+    asset_server: Res<AssetServer>,
+    mut commands: Commands,
+) {
+    if built.0 {
+        return;
+    }
+    let zone: ZoneSeed = *trigger.event();
+    let map = build_walkmap(&zone);
     let texture: Handle<Image> = asset_server.load("tiles.png");
-    let map_size = TilemapSize { x: 64, y: 64 };
+    let map_size = TilemapSize { x: zone.tiles_x, y: zone.tiles_y };
     let mut storage = TileStorage::empty(map_size);
     let tilemap_entity = commands.spawn_empty().id();
-    // Chão em xadrez (grama/terra) → referência visual para perceber o movimento.
+
     for y in 0..map_size.y {
         for x in 0..map_size.x {
-            let index = (x + y) % 2; // 0 = grama, 1 = terra
+            let is_wall = map.get(x, y).map(|c| !c.walkable).unwrap_or(false);
+            // pedra (índice 2) na parede; xadrez grama/terra no chão.
+            let index = if is_wall { 2 } else { (x + y) % 2 };
             let tile_pos = TilePos { x, y };
             let tile_entity = commands
                 .spawn(TileBundle {
@@ -127,6 +151,7 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
             storage.set(&tile_pos, tile_entity);
         }
     }
+
     let tile_size = TilemapTileSize { x: 64.0, y: 32.0 };
     commands.entity(tilemap_entity).insert(TilemapBundle {
         grid_size: tile_size.into(),
@@ -138,6 +163,8 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
         anchor: TilemapAnchor::Center,
         ..default()
     });
+    built.0 = true;
+    info!("zona desenhada: {}x{} (seed {:#x})", zone.tiles_x, zone.tiles_y, zone.seed);
 }
 
 /// Clique DIREITO → converte o cursor na célula (tile) via `from_world_pos` e envia o

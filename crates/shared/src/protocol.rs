@@ -4,6 +4,7 @@
 
 use crate::components::{Npc, Player, Position};
 use crate::ids::PlayerId;
+use crate::world::ZoneSeed;
 use bevy::prelude::*;
 use bevy_replicon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -34,6 +35,7 @@ impl Plugin for ProtocolPlugin {
             .replicate::<Player>()
             .replicate::<Npc>()
             .add_client_event::<MoveTo>(Channel::Ordered)
-            .add_server_event::<AssignedPlayer>(Channel::Ordered);
+            .add_server_event::<AssignedPlayer>(Channel::Ordered)
+            .add_server_event::<ZoneSeed>(Channel::Ordered);
     }
 }

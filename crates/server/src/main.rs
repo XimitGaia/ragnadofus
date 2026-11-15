@@ -146,13 +146,16 @@ fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands
 /// Quando o cliente é AUTORIZADO (handshake de protocolo OK), avisa-o de qual é o player
 /// dele — a essa altura a replicação já pode fluir (enviar antes, no connect, seria
 /// descartado pré-autorização).
-fn on_client_authorized(trigger: On<Add<AuthorizedClient>>, mut commands: Commands) {
+fn on_client_authorized(
+    trigger: On<Add<AuthorizedClient>>,
+    zone: Res<ZoneSeed>,
+    mut commands: Commands,
+) {
     let client_entity = trigger.event().entity;
     let player_id = PlayerId(client_entity.to_bits());
-    commands.server_trigger(ToClients {
-        targets: SendTargets::Single(ClientId::Client(client_entity)),
-        message: AssignedPlayer(player_id),
-    });
+    let target = SendTargets::Single(ClientId::Client(client_entity));
+    commands.server_trigger(ToClients { targets: target, message: AssignedPlayer(player_id) });
+    commands.server_trigger(ToClients { targets: target, message: *zone });
 }
 
 /// Ao desconectar, remove o player do cliente.
