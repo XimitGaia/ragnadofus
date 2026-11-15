@@ -30,3 +30,13 @@ expect_used = "deny"
 # Tipos de Query do Bevy ECS acionam type_complexity à toa (é o padrão da CI do próprio
 # Bevy permitir). Silencia só o ruído de ECS; NÃO relaxa o essencial acima.
 type_complexity = "allow"
+
+# Perf em DEV (recomendação oficial do Bevy): otimiza as DEPENDÊNCIAS (Bevy/wgpu/naga) no
+# profile de debug, mantendo os nossos crates em opt-level 0 (compilação incremental rápida).
+# Sem isso o cliente roda lento/travado em debug mesmo com pouco conteúdo.
+[profile.dev.package."*"]
+opt-level = 3
+
+# Nossos crates em debug continuam rápidos de compilar.
+[profile.dev]
+opt-level = 0

@@ -68,6 +68,19 @@ pub const ROOF_LEVEL: i32 = 6;
 pub const STAIR_X: u32 = HOUSE_X1 - 2;
 pub const STAIR_X2: u32 = HOUSE_X0 + 2;
 
+/// Célula do lance de escada A (térreo↔2º andar)? Fonte ÚNICA das células de escada —
+/// consumida pelo walkmap (rampa), pelo clique e pelos vãos de piso/telhado no cliente.
+#[must_use]
+pub fn is_stair_a(x: u32, y: u32) -> bool {
+    x == STAIR_X && (HOUSE_Y1 - 4..=HOUSE_Y1 - 2).contains(&y)
+}
+
+/// Célula do lance de escada B (2º andar↔telhado)?
+#[must_use]
+pub fn is_stair_b(x: u32, y: u32) -> bool {
+    x == STAIR_X2 && (HOUSE_Y0 + 4..=HOUSE_Y0 + 6).contains(&y)
+}
+
 fn build_house_floors(map: &mut Walkmap) {
     if HOUSE_X1 >= map.width() || HOUSE_Y1 >= map.height() {
         return;

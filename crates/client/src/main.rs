@@ -23,7 +23,8 @@ use bevy_replicon_renet2::{
     RenetChannelsExt, RepliconRenetPlugins,
 };
 use shared::world::{
-    FLOOR_LEVEL, HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1, ROOF_LEVEL, STAIR_X, STAIR_X2,
+    is_stair_a, is_stair_b, FLOOR_LEVEL, HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1, ROOF_LEVEL,
+    STAIR_X, STAIR_X2,
 };
 use shared::{
     build_walkmap, AssignedPlayer, Elevation, Jump, MoveTo, Npc, Player, PlayerId, Position,
@@ -482,7 +483,7 @@ fn on_zone_received(
     let roof_tile = meshes.add(Plane3d::default().mesh().size(1.0, 1.0));
     for y in HOUSE_Y0..=HOUSE_Y1 {
         for x in HOUSE_X0..=HOUSE_X1 {
-            if x == STAIR_X2 && (HOUSE_Y0 + 4..=HOUSE_Y0 + 6).contains(&y) {
+            if is_stair_b(x, y) {
                 continue; // vão da escada B no telhado
             }
             commands.spawn((
@@ -498,9 +499,7 @@ fn on_zone_received(
     let floor2_tile = meshes.add(Plane3d::default().mesh().size(1.0, 1.0));
     for y in (HOUSE_Y0 + 1)..=(HOUSE_Y1 - 1) {
         for x in (HOUSE_X0 + 1)..=(HOUSE_X1 - 1) {
-            let stair_a = x == STAIR_X && (HOUSE_Y1 - 4..=HOUSE_Y1 - 2).contains(&y);
-            let stair_b = x == STAIR_X2 && (HOUSE_Y0 + 4..=HOUSE_Y0 + 6).contains(&y);
-            if stair_a || stair_b {
+            if is_stair_a(x, y) || is_stair_b(x, y) {
                 continue; // vão da escada (stairwell) — piso aberto aqui
             }
             commands.spawn((
@@ -888,8 +887,10 @@ fn read_right_click(
     cameras: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     me: Res<MyPlayer>,
     players: Query<(&Player, &Elevation)>,
+    mut last_sent: Local<Option<(u32, u32, i32)>>,
 ) {
     if !buttons.pressed(MouseButton::Right) {
+        *last_sent = None; // solta o botão → próximo clique pode reenviar
         return;
     }
     let (Ok(window), Ok((camera, camera_tf))) = (windows.single(), cameras.single()) else {
@@ -927,8 +928,8 @@ fn read_right_click(
     };
     // Mudar de nível SÓ clicando numa ESCADA: lance A (térreo↔2º andar), lance B (2º
     // andar↔telhado). Clicar o CHÃO anda no nível atual (não sobe mais sem querer).
-    let flight_a = gx == STAIR_X && (HOUSE_Y1 - 4..=HOUSE_Y1 - 2).contains(&gz);
-    let flight_b = gx == STAIR_X2 && (HOUSE_Y0 + 4..=HOUSE_Y0 + 6).contains(&gz);
+    let flight_a = is_stair_a(gx, gz);
+    let flight_b = is_stair_b(gx, gz);
     let te = if own_elev < FLOOR_LEVEL && flight_a {
         FLOOR_LEVEL // térreo → sobe pelo lance A ao 2º andar
     } else if own_elev == FLOOR_LEVEL && flight_b {
@@ -940,7 +941,12 @@ fn read_right_click(
     } else {
         own_elev // anda no nível atual
     };
-    commands.client_trigger(MoveTo { tx: gx, ty: gz, te });
+    // Só reenvia quando o alvo MUDA (evita spammar MoveTo + A* no servidor todo frame).
+    let msg = (gx, gz, te);
+    if *last_sent != Some(msg) {
+        *last_sent = Some(msg);
+        commands.client_trigger(MoveTo { tx: gx, ty: gz, te });
+    }
 }
 
 /// Tecla **Enter** → pedido de PULAR/CAIR um nível (o servidor decide se há onde cair).

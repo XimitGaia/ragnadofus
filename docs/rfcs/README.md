@@ -26,6 +26,7 @@ transformar uma *hipótese aberta* da visão numa *decisão rastreável*.
 | [0004](0004-economia-crafting.md) | Loop de coleta → crafting | Draft | P0 | C2 |
 | [0005](0005-cliente-servidor.md) | Cliente-servidor autoritativo + persistência | In Review | P0 | D1/B2 |
 | [0006](0006-harness-ia.md) | Harness mínimo de dev com IA | Draft | P0 | E1 |
+| [0007](0007-escalabilidade-mundo-rede.md) | Escalabilidade: chunking, interesse de rede, culling | Draft | P1 | Escala |
 
 _Backlog completo (P1/P2 ainda sem RFC): ver `../pontos-chave.md`._
 
