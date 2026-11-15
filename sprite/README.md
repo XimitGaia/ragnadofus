@@ -4,7 +4,7 @@ Os PNGs são os assets para o jogo. Arquivos `.ase` são projetos editáveis do 
 
 | Pasta | Conteúdo |
 |---|---|
-| `hero/` | 5 animações × 5 direções; caminhada com 8 poses, ataque com 5 poses e idle com respiração; sombra e metadados |
+| `hero/` | Personagem detalhado: 5 animações × 8 direções; caminhada com 8 poses, ataque com 5 poses, idle com respiração; sombra e metadados |
 | `npc/` | Variante de paleta do personagem, mesmas animações |
 | `monster/` | Criatura da floresta e animação idle |
 | `castle/` | 8 perspectivas externas e interior de 1 cômodo |
@@ -13,8 +13,8 @@ Os PNGs são os assets para o jogo. Arquivos `.ase` são projetos editáveis do 
 | `architecture/` | Parede e casa mínima em peças |
 | `props/trees/`, `props/plants/`, `props/rocks/` | Variações de cenário |
 
-As sheets do herói e NPC têm células de 64×96 px, linhas `S, SE, E, NE, N` e colunas de frames. O pivot é (32, 88); `SW`, `W` e `NW` são espelhamentos. Os `.ase` dessas animações têm uma linha de tempo real: cada frame mostra as cinco direções em uma coluna de 64×480 px. O PNG exportado continua em grid para leitura pelo engine.
+As sheets do herói têm células de **320×512 px**, linhas `S, SE, E, NE, N, NW, W, SW` e pivot (160, 480). Os pixels e cores vêm das matrizes detalhadas em `source/`, sem redução para a antiga escala 64×96 e sem quantização para 32 cores. As sheets do NPC ainda seguem o guia antigo de 64×96 px. Os `.ase` do herói têm uma linha de tempo real: cada frame mostra as oito direções em uma coluna de 320×4096 px.
 
 `castle/castle.json` lista as vistas externas em ordem de rotação, o pivot e o interior. O interior é uma imagem de ambiente com telhado removido; ao entrar, o jogo deve alternar para ela. Os assets ainda não estão conectados à renderização atual do cliente.
 
-Para reproduzir: `python3 sprite/upgrade_from_concepts.py`, `python3 sprite/export_ase.py`, `python3 sprite/organize.py`, `python3 sprite/validate.py`. Execute a partir da raiz do repositório.
+Para reproduzir o herói detalhado: `python3 sprite/hero/build_hd.py`, `python3 sprite/hero/export_hd_ase.py`, `python3 sprite/validate.py`. Execute a partir da raiz do repositório. O pipeline antigo (`upgrade_from_concepts.py` + `organize.py`) ainda gera os outros elementos em baixa resolução; para manter o herói detalhado, execute `build_hd.py` por último.

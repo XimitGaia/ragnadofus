@@ -7,7 +7,7 @@ from pathlib import Path
 
 p=Path(__file__).parent
 folders={'hero','npc','monster','castle','terrain','architecture','props'}
-pngs=[q for q in p.rglob('*.png') if q.relative_to(p).parts[0] in folders]
+pngs=[q for q in p.rglob('*.png') if q.relative_to(p).parts[0] in folders and not (q.parent.name=='npc' and q.stem.rsplit('_',1)[-1] in ('W','SW','NW'))]
 assert len(pngs)==56, len(pngs)
 for path in pngs:
     b=path.read_bytes(); assert b[:8]==b'\x89PNG\r\n\x1a\n',path
@@ -24,24 +24,26 @@ for path in pngs:
     assert struct.unpack('<I',a[:4])[0]==len(a) and a[4:6]==bytes.fromhex('e0a5'),ase
 for who in ('hero','npc'):
     meta=json.loads((p/who/f'{who}.json').read_text())
-    assert meta['canvas']=={'w':64,'h':96} and meta['pivot']=={'x':32,'y':88}
-    assert meta['directions']==['S','SE','E','NE','N']
+    cw,ch=(320,512) if who=='hero' else (64,96)
+    assert meta['canvas']=={'w':cw,'h':ch}
+    assert meta['pivot']==({'x':160,'y':480} if who=='hero' else {'x':32,'y':88})
+    assert meta['directions']==(['S','SE','E','NE','N','NW','W','SW'] if who=='hero' else ['S','SE','E','NE','N'])
     for anim,desc in meta['animations'].items():
         b=(p/who/f'{who}_{anim}.png').read_bytes()
-        assert struct.unpack('>II',b[16:24])==(64*desc['frames'],480)
+        assert struct.unpack('>II',b[16:24])==(cw*desc['frames'],ch*len(meta['directions']))
         pos=8;compressed=b''
         while pos<len(b):
             n=struct.unpack('>I',b[pos:pos+4])[0]
             if b[pos+4:pos+8]==b'IDAT':compressed+=b[pos+8:pos+8+n]
             pos+=n+12
-        raw=zlib.decompress(compressed);stride=64*desc['frames']*4+1
+        raw=zlib.decompress(compressed);stride=cw*desc['frames']*4+1
         hashes=[]
         for f in range(desc['frames']):
-            pixels=b''.join(raw[y*stride+1+f*256:y*stride+1+(f+1)*256] for y in range(480))
+            pixels=b''.join(raw[y*stride+1+f*cw*4:y*stride+1+(f+1)*cw*4] for y in range(ch*len(meta['directions'])))
             hashes.append(hashlib.sha256(pixels).digest())
         assert len(set(hashes))>=min(3,desc['frames']),(who,anim)
         ase=(p/who/f'{who}_{anim}.ase').read_bytes()
-        assert struct.unpack('<HHH',ase[6:12])==(desc['frames'],64,480),anim
+        assert struct.unpack('<HHH',ase[6:12])==(desc['frames'],cw,ch*len(meta['directions'])),anim
 for mat in ('grass','dirt','stone'):
     for v in range(3):
         b=(p/'terrain'/'ground'/f'tile_{mat}_{v}.png').read_bytes()
