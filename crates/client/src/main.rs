@@ -27,7 +27,7 @@ use shared::world::{
     STAIR_X, STAIR_X2,
 };
 use shared::{
-    build_walkmap, AssignedPlayer, Elevation, Jump, MoveTo, Npc, Player, PlayerId, Position,
+    build_walkmap, AssignedPlayer, Elevation, Hop, Jump, MoveTo, Npc, Player, PlayerId, Position,
     ProtocolPlugin, Walkmap, ZoneSeed,
 };
 use std::collections::HashSet;
@@ -226,6 +226,7 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<ZoneBuilt>()
     .init_resource::<CamOrbit>()
     .init_resource::<VisionState>()
+    .init_resource::<HopAnim>()
     .add_observer(on_assigned_player)
     .add_observer(on_zone_received)
     .add_systems(Startup, (load_assets, setup_scene, setup_ui))
@@ -234,10 +235,12 @@ fn main() -> anyhow::Result<()> {
         (
             read_right_click,
             read_jump,
+            read_hop,
             hydrate_players,
             hydrate_npcs,
             rotate_input,
             sync_transforms,
+            hop_arc,
             face_trees,
             animate_walk,
             auto_rotate_camera,
@@ -949,10 +952,49 @@ fn read_right_click(
     }
 }
 
-/// Tecla **Enter** → pedido de PULAR/CAIR um nível (o servidor decide se há onde cair).
+/// Tecla **Enter** → DESCER um nível (o servidor decide se há onde cair).
 fn read_jump(mut commands: Commands, keys: Res<ButtonInput<KeyCode>>) {
     if keys.just_pressed(KeyCode::Enter) {
         commands.client_trigger(Jump);
+    }
+}
+
+/// Arco visual do pulo pra frente (tempo restante da animação do PRÓPRIO player).
+#[derive(Resource, Default)]
+struct HopAnim(f32);
+
+const HOP_DUR: f32 = 0.45;
+const HOP_HEIGHT: f32 = 0.9;
+
+/// Tecla **Espaço** → PULO PRA FRENTE (`Hop`) + dispara o arco visual local.
+fn read_hop(mut commands: Commands, keys: Res<ButtonInput<KeyCode>>, mut anim: ResMut<HopAnim>) {
+    if keys.just_pressed(KeyCode::Space) {
+        commands.client_trigger(Hop);
+        anim.0 = HOP_DUR;
+    }
+}
+
+/// Aplica o arco (parábola) na altura do sprite do PRÓPRIO player durante o pulo. Roda
+/// DEPOIS de `sync_transforms` (soma por cima da altura-base do nível).
+fn hop_arc(
+    time: Res<Time>,
+    mut anim: ResMut<HopAnim>,
+    me: Res<MyPlayer>,
+    mut players: Query<(&Player, &mut Transform)>,
+) {
+    if anim.0 <= 0.0 {
+        return;
+    }
+    anim.0 = (anim.0 - time.delta_secs()).max(0.0);
+    let Some(my_id) = me.0 else {
+        return;
+    };
+    let p = 1.0 - anim.0 / HOP_DUR; // 0 → 1 ao longo do pulo
+    let arc = 4.0 * p * (1.0 - p) * HOP_HEIGHT; // parábola, pico no meio
+    for (player, mut transform) in &mut players {
+        if player.0 == my_id {
+            transform.translation.y += arc;
+        }
     }
 }
 

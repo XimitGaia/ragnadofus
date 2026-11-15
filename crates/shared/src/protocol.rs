@@ -28,10 +28,15 @@ pub struct MoveTo {
     pub te: i32,
 }
 
-/// Cliente → servidor: pedido de PULAR/CAIR um nível (tecla Enter). O servidor decide se há
+/// Cliente → servidor: pedido de DESCER um nível (tecla Enter). O servidor decide se há
 /// superfície abaixo e baixa a [`Elevation`] (multi-nível 2.5D).
 #[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct Jump;
+
+/// Cliente → servidor: PULO PRA FRENTE (tecla Espaço). O servidor salta o player ~1 tile na
+/// direção em que ele olha e o faz POUSAR na superfície de lá (cai de borda, se houver).
+#[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Hop;
 
 /// Registra o protocolo. Adicionado por ambos (cliente e servidor), depois de
 /// `RepliconPlugins`.
@@ -45,6 +50,7 @@ impl Plugin for ProtocolPlugin {
             .replicate::<Elevation>()
             .add_client_event::<MoveTo>(Channel::Ordered)
             .add_client_event::<Jump>(Channel::Ordered)
+            .add_client_event::<Hop>(Channel::Ordered)
             .add_server_event::<AssignedPlayer>(Channel::Ordered)
             .add_server_event::<ZoneSeed>(Channel::Ordered);
     }

@@ -3,8 +3,18 @@
 //! cliente: no Passo 2 o cliente só escreve [`MoveIntent`]; no Passo 4 o servidor vira
 //! o dono e valida. Sem rede, sem render.
 
-use crate::components::{MoveIntent, Position, Velocity};
+use crate::components::{Facing, MoveIntent, Position, Velocity};
 use bevy::prelude::*;
+
+/// Atualiza a direção para onde a entidade "olha" com a direção atual de movimento (quando
+/// se move). Fica estável quando para (guarda a última direção) — base do pulo pra frente.
+pub fn update_facing(mut query: Query<(&Velocity, &mut Facing)>) {
+    for (velocity, mut facing) in &mut query {
+        if velocity.0.length_squared() > 1e-4 {
+            facing.0 = velocity.0.normalize();
+        }
+    }
+}
 
 /// Velocidade de caminhada, em **tiles/segundo** (as posições estão em unidades de tile).
 pub const WALK_SPEED: f32 = 4.0;
