@@ -2,7 +2,7 @@
 //! regeneramos a walkmap deterministicamente. A persistência fica atrás de um trait
 //! [`WorldRepository`] (backend trocável — Postgres, memória, etc.).
 
-use crate::walkmap::{SubCell, Walkmap, SUBCELLS_PER_TILE};
+use crate::walkmap::{SubCell, Walkmap};
 use bevy::prelude::Resource;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -39,8 +39,8 @@ pub trait WorldRepository: Send + Sync {
 #[must_use]
 pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
     let mut map = Walkmap::flat(zone.tiles_x, zone.tiles_y);
-    let sub_w = zone.tiles_x * SUBCELLS_PER_TILE;
-    let sub_h = zone.tiles_y * SUBCELLS_PER_TILE;
+    let sub_w = zone.tiles_x;
+    let sub_h = zone.tiles_y;
     if sub_w < 2 || sub_h < 1 {
         return map;
     }

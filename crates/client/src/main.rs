@@ -10,7 +10,9 @@
 //! Câmera estática centrada na zona (seguir o próprio player + clique-pra-mover voltam
 //! quando a identidade do próprio player for replicada / com A* no servidor — Passo 5).
 
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy::sprite::Anchor;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_ecs_tilemap::prelude::*;
 use bevy_replicon::prelude::*;
@@ -19,7 +21,7 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::{AssignedPlayer, MoveCommand, Npc, Player, PlayerId, Position, ProtocolPlugin};
+use shared::{AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin};
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::SystemTime;
 
@@ -59,8 +61,9 @@ fn main() -> anyhow::Result<()> {
     .add_systems(Startup, setup_scene)
     .add_systems(
         Update,
-        (read_input, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
-    );
+        (read_right_click, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
+    )
+    .add_systems(Update, zoom_control);
 
     connect(&mut app, server_addr)?;
     info!("cliente ragnadofus conectando a {server_addr}");
@@ -137,23 +140,35 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     });
 }
 
-/// Lê WASD/setas e envia o comando de movimento ao servidor (só quando há direção).
-fn read_input(mut commands: Commands, keys: Res<ButtonInput<KeyCode>>) {
-    let mut dir = Vec2::ZERO;
-    if keys.pressed(KeyCode::KeyW) || keys.pressed(KeyCode::ArrowUp) {
-        dir.y += 1.0;
+/// Clique DIREITO → converte o cursor na célula (tile) via `from_world_pos` e envia o
+/// destino ao servidor (click-to-move estilo Ragnarok).
+fn read_right_click(
+    mut commands: Commands,
+    buttons: Res<ButtonInput<MouseButton>>,
+    windows: Query<&Window>,
+    cameras: Query<(&Camera, &GlobalTransform)>,
+) {
+    if !buttons.just_pressed(MouseButton::Right) {
+        return;
     }
-    if keys.pressed(KeyCode::KeyS) || keys.pressed(KeyCode::ArrowDown) {
-        dir.y -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyA) || keys.pressed(KeyCode::ArrowLeft) {
-        dir.x -= 1.0;
-    }
-    if keys.pressed(KeyCode::KeyD) || keys.pressed(KeyCode::ArrowRight) {
-        dir.x += 1.0;
-    }
-    if dir != Vec2::ZERO {
-        commands.client_trigger(MoveCommand(dir.normalize_or_zero()));
+    let (Ok(window), Ok((camera, camera_tf))) = (windows.single(), cameras.single()) else {
+        return;
+    };
+    let Some(cursor) = window.cursor_position() else {
+        return;
+    };
+    let Ok(world) = camera.viewport_to_world_2d(camera_tf, cursor) else {
+        return;
+    };
+    let map_size = TilemapSize { x: 64, y: 64 };
+    let grid_size = TilemapGridSize { x: 64.0, y: 32.0 };
+    let tile_size = TilemapTileSize { x: 64.0, y: 32.0 };
+    let map_type = TilemapType::Isometric(IsoCoordSystem::Diamond);
+    let anchor = TilemapAnchor::Center;
+    if let Some(tile) =
+        TilePos::from_world_pos(&world, &map_size, &grid_size, &tile_size, &map_type, &anchor)
+    {
+        commands.client_trigger(MoveTo { tx: tile.x, ty: tile.y });
     }
 }
 
@@ -166,7 +181,12 @@ fn hydrate_players(mut commands: Commands, players: Query<(Entity, &Player), Wit
         let g = ((id >> 8) & 0xFF) as f32 / 255.0;
         let b = (id & 0xFF) as f32 / 255.0;
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.3 + 0.6 * r, 0.3 + 0.6 * g, 0.3 + 0.6 * b), Vec2::new(16.0, 24.0)),
+            Sprite {
+                color: Color::srgb(0.3 + 0.6 * r, 0.3 + 0.6 * g, 0.3 + 0.6 * b),
+                custom_size: Some(Vec2::new(32.0, 48.0)), // ~0,5 tile largura, ~1,5 tile altura
+                ..default()
+            },
+            Anchor::BOTTOM_CENTER, // pés no centro do tile (ajuda o y-sort)
             Transform::from_xyz(0.0, 0.0, 100.0),
         ));
     }
@@ -176,17 +196,45 @@ fn hydrate_players(mut commands: Commands, players: Query<(Entity, &Player), Wit
 fn hydrate_npcs(mut commands: Commands, npcs: Query<Entity, (With<Npc>, Without<Sprite>)>) {
     for entity in &npcs {
         commands.entity(entity).insert((
-            Sprite::from_color(Color::srgb(0.2, 0.5, 0.95), Vec2::new(16.0, 24.0)),
+            Sprite {
+                color: Color::srgb(0.2, 0.5, 0.95),
+                custom_size: Some(Vec2::new(32.0, 48.0)),
+                ..default()
+            },
+            Anchor::BOTTOM_CENTER,
             Transform::from_xyz(0.0, 0.0, 100.0),
         ));
     }
 }
 
-/// Espelha a `Position` replicada (players e NPC) no `Transform` de render (mantém z).
+/// Base AFIM da projeção iso (origem + deltas de tela por +1 tile em x e y), derivada dos
+/// helpers do `bevy_ecs_tilemap` — alinha EXATAMENTE com os losangos desenhados. Como a
+/// projeção iso é afim nas coordenadas de tile, isto projeta posições CONTÍNUAS também.
+fn iso_basis() -> (Vec2, Vec2, Vec2) {
+    let map_size = TilemapSize { x: 64, y: 64 };
+    let grid_size = TilemapGridSize { x: 64.0, y: 32.0 };
+    let tile_size = TilemapTileSize { x: 64.0, y: 32.0 };
+    let map_type = TilemapType::Isometric(IsoCoordSystem::Diamond);
+    let anchor = TilemapAnchor::Center;
+    let center = |x: u32, y: u32| {
+        TilePos { x, y }.center_in_world(&map_size, &grid_size, &tile_size, &map_type, &anchor)
+    };
+    let origin = center(0, 0);
+    (origin, center(1, 0) - origin, center(0, 1) - origin)
+}
+
+/// Projeta uma posição do mundo (unidades de tile) para a tela iso.
+fn project(pos: Vec2, origin: Vec2, unit_x: Vec2, unit_y: Vec2) -> Vec2 {
+    origin + pos.x * unit_x + pos.y * unit_y
+}
+
+/// Projeta a `Position` replicada (players e NPC) para o `Transform` de render no iso.
 fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
+    let (origin, unit_x, unit_y) = iso_basis();
     for (position, mut transform) in &mut entities {
-        transform.translation.x = position.0.x;
-        transform.translation.y = position.0.y;
+        let screen = project(position.0, origin, unit_x, unit_y);
+        transform.translation.x = screen.x;
+        transform.translation.y = screen.y;
     }
 }
 
@@ -208,8 +256,29 @@ fn camera_follow(
     let Some((_, position)) = players.iter().find(|(p, _)| p.0 == my_id) else {
         return;
     };
+    let (origin, unit_x, unit_y) = iso_basis();
+    let screen = project(position.0, origin, unit_x, unit_y);
     for mut transform in &mut cameras {
-        transform.translation.x = position.0.x;
-        transform.translation.y = position.0.y;
+        transform.translation.x = screen.x;
+        transform.translation.y = screen.y;
+    }
+}
+
+/// Zoom in/out com a roda do mouse (scroll). `scale` menor = mais zoom.
+fn zoom_control(
+    mut wheel: MessageReader<MouseWheel>,
+    mut cameras: Query<&mut Projection, With<Camera2d>>,
+) {
+    let mut delta = 0.0;
+    for event in wheel.read() {
+        delta += event.y;
+    }
+    if delta == 0.0 {
+        return;
+    }
+    for mut projection in &mut cameras {
+        if let Projection::Orthographic(ortho) = &mut *projection {
+            ortho.scale = (ortho.scale * (1.0 - delta * 0.1)).clamp(0.1, 2.0);
+        }
     }
 }

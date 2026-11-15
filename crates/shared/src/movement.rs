@@ -6,8 +6,8 @@
 use crate::components::{MoveIntent, Position, Velocity};
 use bevy::prelude::*;
 
-/// Velocidade de caminhada, em px/s no plano do mundo.
-pub const WALK_SPEED: f32 = 64.0;
+/// Velocidade de caminhada, em **tiles/segundo** (as posições estão em unidades de tile).
+pub const WALK_SPEED: f32 = 4.0;
 
 /// Conjunto dos sistemas de movimento, rodando encadeados em `FixedUpdate`.
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -18,9 +18,9 @@ use bevy_replicon_renet2::{
     RenetChannelsExt, RepliconRenetPlugins,
 };
 use shared::{
-    build_walkmap, subcell_center, AssignedPlayer, InMemoryRepository, MoveCommand, MoveIntent, Npc,
-    Patrol, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin, Velocity, WorldRepository,
-    ZoneSeed,
+    build_walkmap, cell_center, find_path, AssignedPlayer, InMemoryRepository, MoveIntent,
+    MoveOrder, MoveTo, Npc, Patrol, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin,
+    Velocity, Walkmap, WorldRepository, ZoneSeed,
 };
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
@@ -54,7 +54,7 @@ fn main() -> anyhow::Result<()> {
     .add_observer(on_client_connected)
     .add_observer(on_client_authorized)
     .add_observer(on_client_disconnected)
-    .add_observer(on_move_command);
+    .add_observer(on_move_to);
 
     // Carrega a receita da zona via repository (D4.3), backend trocável: Postgres se
     // `DATABASE_URL` estiver setado, senão em memória.
@@ -85,15 +85,16 @@ fn setup_world(mut commands: Commands, zone: Res<ZoneSeed>) {
     let map = build_walkmap(&zone);
     commands.insert_resource(map);
 
+    // NPC patrulhando PERTO do centro (onde os players nascem) para ficar visível.
     commands.spawn((
         Npc,
-        Position(subcell_center((10, 10))),
+        Position(cell_center((28, 32))),
         Velocity(Vec2::ZERO),
         MoveIntent(Vec2::ZERO),
-        Patrol::new(vec![(245, 10), (10, 10)]),
+        Patrol::new(vec![(36, 32), (28, 32)]),
         Replicated,
     ));
-    info!("mundo carregado: walkmap da seed + 1 NPC patrulhando via A*");
+    info!("mundo carregado: walkmap da seed + 1 NPC patrulhando via A* (centro)");
 }
 
 /// Cria o `RenetServer` + transporte netcode e os insere como recursos.
@@ -129,8 +130,8 @@ fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands
     let player_id = PlayerId(client_entity.to_bits());
     // Spawn no CENTRO da walkmap (não no canto 0,0, que fica na borda e bloqueia ir para
     // coordenadas negativas). Leve offset por cliente para não sobrepor os players.
-    let offset = (client_entity.to_bits() % 6) as f32 * 24.0;
-    let spawn = subcell_center((128, 128)) + Vec2::new(offset, 0.0);
+    let offset = (client_entity.to_bits() % 6) as f32 * 0.6;
+    let spawn = cell_center((32, 32)) + Vec2::new(offset, 0.0);
     info!("cliente conectado: {client_entity} → player {player_id:?} em {spawn:?}");
     commands.spawn((
         Player(player_id),
@@ -168,15 +169,26 @@ fn on_client_disconnected(
     }
 }
 
-/// Aplica o comando de movimento recebido do cliente à `MoveIntent` do player dele.
-/// O servidor é a autoridade: só traduz intenção; a simulação roda no `SharedPlugin`.
-fn on_move_command(
-    trigger: On<FromClient<MoveCommand>>,
-    mut players: Query<(&Owner, &mut MoveIntent)>,
+/// Recebe o destino clicado (tile), roda **A\*** da célula atual do player até lá e
+/// grava um `MoveOrder` — a autoridade é do servidor (click-to-move estilo Ragnarok).
+fn on_move_to(
+    trigger: On<FromClient<MoveTo>>,
+    map: Option<Res<Walkmap>>,
+    players: Query<(Entity, &Owner, &Position)>,
+    mut commands: Commands,
 ) {
-    for (owner, mut intent) in &mut players {
+    let Some(map) = map.as_deref() else {
+        return;
+    };
+    // O tile clicado JÁ é a célula alvo (grade de colisão = grade de render).
+    let target = (trigger.message.tx, trigger.message.ty);
+    for (entity, owner, position) in &players {
         if owner.0 == trigger.client_id {
-            intent.0 = trigger.message.0;
+            if let Some(start) = map.cell_at_world(position.0) {
+                if let Some(path) = find_path(map, start, target) {
+                    commands.entity(entity).insert(MoveOrder::new(path));
+                }
+            }
         }
     }
 }

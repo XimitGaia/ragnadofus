@@ -4,11 +4,11 @@
 
 use crate::components::{MoveIntent, Npc, Position};
 use crate::pathfinding::find_path;
-use crate::walkmap::{subcell_center, Walkmap};
+use crate::walkmap::{cell_center, Walkmap};
 use bevy::prelude::*;
 
 /// Distância (px) para considerar que chegou ao waypoint atual.
-const WAYPOINT_EPS: f32 = 2.0;
+const WAYPOINT_EPS: f32 = 0.15;
 
 /// Estado de patrulha do NPC: percorre `goals` em ordem cíclica, recalculando o path A*
 /// a cada troca de objetivo.
@@ -44,7 +44,7 @@ pub fn npc_ai(
 
         // (Re)planeja quando não há waypoints pendentes.
         if patrol.step >= patrol.path.len() {
-            let Some(start) = map.subcell_at_world(position.0) else {
+            let Some(start) = map.cell_at_world(position.0) else {
                 intent.0 = Vec2::ZERO;
                 continue;
             };
@@ -69,7 +69,7 @@ pub fn npc_ai(
             intent.0 = Vec2::ZERO;
             continue;
         };
-        let to_waypoint = subcell_center(waypoint) - position.0;
+        let to_waypoint = cell_center(waypoint) - position.0;
         if to_waypoint.length() <= WAYPOINT_EPS {
             patrol.step += 1;
             intent.0 = Vec2::ZERO;

@@ -15,10 +15,14 @@ pub const PROTOCOL_ID: u64 = 0x5241_474E_4144_4F01; // "RAGNADO" + versão 01
 #[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct AssignedPlayer(pub PlayerId);
 
-/// Comando de movimento do cliente → servidor. Só a direção desejada (intenção); o
-/// servidor valida e simula (anti-cheat, padroes §2).
+/// Destino de movimento do cliente → servidor (TILE clicado). O servidor roda A* e move
+/// o player autoritativamente (click-to-move estilo Ragnarok). Só o destino — o servidor
+/// valida e pathfinda (anti-cheat, padroes §2).
 #[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
-pub struct MoveCommand(#[serde(with = "crate::serde_helpers::vec2")] pub Vec2);
+pub struct MoveTo {
+    pub tx: u32,
+    pub ty: u32,
+}
 
 /// Registra o protocolo. Adicionado por ambos (cliente e servidor), depois de
 /// `RepliconPlugins`.
@@ -29,7 +33,7 @@ impl Plugin for ProtocolPlugin {
         app.replicate::<Position>()
             .replicate::<Player>()
             .replicate::<Npc>()
-            .add_client_event::<MoveCommand>(Channel::Ordered)
+            .add_client_event::<MoveTo>(Channel::Ordered)
             .add_server_event::<AssignedPlayer>(Channel::Ordered);
     }
 }

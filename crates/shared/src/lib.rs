@@ -15,6 +15,7 @@ pub mod ids;
 pub mod movement;
 pub mod network;
 pub mod npc;
+pub mod order;
 pub mod pathfinding;
 pub mod protocol;
 pub mod serde_helpers;
@@ -26,9 +27,10 @@ pub use ids::{PlayerId, Tick};
 pub use movement::{MovementSet, WALK_SPEED};
 pub use network::{ClientMessage, ServerMessage};
 pub use npc::Patrol;
+pub use order::MoveOrder;
 pub use pathfinding::find_path;
-pub use protocol::{AssignedPlayer, MoveCommand, ProtocolPlugin};
-pub use walkmap::{resolve_move, subcell_center, SubCell, Walkmap};
+pub use protocol::{AssignedPlayer, MoveTo, ProtocolPlugin};
+pub use walkmap::{cell_center, resolve_move, SubCell, Walkmap};
 pub use world::{build_walkmap, InMemoryRepository, RepoError, WorldRepository, ZoneSeed};
 
 /// Plugin raiz do ECS compartilhado. No Passo 1 é um esqueleto; sistemas de simulação
@@ -44,6 +46,7 @@ impl Plugin for SharedPlugin {
             FixedUpdate,
             (
                 npc::npc_ai,
+                order::follow_move_order,
                 movement::velocity_from_intent,
                 movement::integrate_positions,
             )
