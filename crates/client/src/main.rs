@@ -102,14 +102,22 @@ fn setup_scene(mut commands: Commands, asset_server: Res<AssetServer>) {
     let map_size = TilemapSize { x: 64, y: 64 };
     let mut storage = TileStorage::empty(map_size);
     let tilemap_entity = commands.spawn_empty().id();
-    fill_tilemap_rect(
-        TileTextureIndex(0),
-        TilePos { x: 0, y: 0 },
-        map_size,
-        TilemapId(tilemap_entity),
-        &mut commands,
-        &mut storage,
-    );
+    // Chão em xadrez (grama/terra) → referência visual para perceber o movimento.
+    for y in 0..map_size.y {
+        for x in 0..map_size.x {
+            let index = (x + y) % 2; // 0 = grama, 1 = terra
+            let tile_pos = TilePos { x, y };
+            let tile_entity = commands
+                .spawn(TileBundle {
+                    position: tile_pos,
+                    texture_index: TileTextureIndex(index),
+                    tilemap_id: TilemapId(tilemap_entity),
+                    ..Default::default()
+                })
+                .id();
+            storage.set(&tile_pos, tile_entity);
+        }
+    }
     let tile_size = TilemapTileSize { x: 64.0, y: 32.0 };
     commands.entity(tilemap_entity).insert(TilemapBundle {
         grid_size: tile_size.into(),
