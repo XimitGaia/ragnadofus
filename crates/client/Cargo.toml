@@ -25,6 +25,8 @@ bevy = { workspace = true, features = [
     "multi_threaded",
     "default_app",     # async_executor, bevy_asset, bevy_log, bevy_state, reflect_auto_register
     "2d_bevy_render",  # bevy_render + core_pipeline + sprite_render + 2d_api (bevy_sprite)
+    "ui_bevy_render",  # UI (botoes/texto) SEM default_platform -> nao puxa gilrs/audio (DT-03 ok)
+    "ui_picking",      # clique nativo em botoes de UI (tambem nao puxa default_platform)
     "bevy_winit",
     "x11",
     "wayland",

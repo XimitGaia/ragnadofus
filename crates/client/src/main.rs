@@ -10,9 +10,10 @@
 //! Câmera estática centrada na zona (seguir o próprio player + clique-pra-mover voltam
 //! quando a identidade do próprio player for replicada / com A* no servidor — Passo 5).
 
-use bevy::input::mouse::MouseWheel;
+use bevy::picking::events::PointerClick;
 use bevy::prelude::*;
 use bevy::sprite::Anchor;
+use bevy::text::FontSize;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_ecs_tilemap::prelude::*;
 use bevy_replicon::prelude::*;
@@ -66,12 +67,11 @@ fn main() -> anyhow::Result<()> {
     .init_resource::<ZoneBuilt>()
     .add_observer(on_assigned_player)
     .add_observer(on_zone_received)
-    .add_systems(Startup, setup_scene)
+    .add_systems(Startup, (setup_scene, setup_ui))
     .add_systems(
         Update,
         (read_right_click, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
-    )
-    .add_systems(Update, zoom_control);
+    );
 
     connect(&mut app, server_addr)?;
     info!("cliente ragnadofus conectando a {server_addr}");
@@ -292,21 +292,53 @@ fn camera_follow(
     }
 }
 
-/// Zoom in/out com a roda do mouse (scroll). `scale` menor = mais zoom.
-fn zoom_control(
-    mut wheel: MessageReader<MouseWheel>,
-    mut cameras: Query<&mut Projection, With<Camera2d>>,
-) {
-    let mut delta = 0.0;
-    for event in wheel.read() {
-        delta += event.y;
-    }
-    if delta == 0.0 {
-        return;
-    }
-    for mut projection in &mut cameras {
-        if let Projection::Orthographic(ortho) = &mut *projection {
-            ortho.scale = (ortho.scale * (1.0 - delta * 0.1)).clamp(0.1, 2.0);
-        }
-    }
+/// UI de zoom no topo-direito: label "Zoom" + botões "+" e "-". Cada botão tem um
+/// observer nativo de clique (picking de UI) que ajusta o `scale` da câmera.
+fn setup_ui(mut commands: Commands) {
+    commands
+        .spawn(Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            right: Val::Px(10.0),
+            flex_direction: FlexDirection::Column,
+            align_items: AlignItems::Center,
+            row_gap: Val::Px(6.0),
+            ..default()
+        })
+        .with_children(|root| {
+            root.spawn((
+                Text::new("Zoom"),
+                TextFont { font_size: FontSize::Px(16.0), ..default() },
+                TextColor(Color::WHITE),
+            ));
+            // (+) aproxima (scale menor); (-) afasta (scale maior).
+            for (label, factor) in [("+", 0.8_f32), ("-", 1.25_f32)] {
+                root.spawn((
+                    Node {
+                        width: Val::Px(36.0),
+                        height: Val::Px(36.0),
+                        align_items: AlignItems::Center,
+                        justify_content: JustifyContent::Center,
+                        ..default()
+                    },
+                    BackgroundColor(Color::srgb(0.18, 0.18, 0.22)),
+                ))
+                .with_children(|button| {
+                    button.spawn((
+                        Text::new(label),
+                        TextFont { font_size: FontSize::Px(24.0), ..default() },
+                        TextColor(Color::WHITE),
+                    ));
+                })
+                .observe(
+                    move |_: On<PointerClick>, mut cameras: Query<&mut Projection, With<Camera2d>>| {
+                        for mut projection in &mut cameras {
+                            if let Projection::Orthographic(ortho) = &mut *projection {
+                                ortho.scale = (ortho.scale * factor).clamp(0.1, 2.0);
+                            }
+                        }
+                    },
+                );
+            }
+        });
 }
