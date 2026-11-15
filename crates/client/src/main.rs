@@ -226,7 +226,9 @@ fn on_zone_received(
                     ..default()
                 },
                 Anchor::BOTTOM_CENTER,
-                Transform::from_xyz(base.x, base.y, ysort_z(base.y)),
+                // z baixo (acima do chão, ABAIXO dos personagens): a parede nunca "morde"
+                // o boneco. A oclusão iso bonita volta com a arte real das paredes.
+                Transform::from_xyz(base.x, base.y, 10.0),
             ));
         }
     }
