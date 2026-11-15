@@ -1,0 +1,17 @@
+{
+  "canvas": {
+    "w": 96,
+    "h": 96
+  },
+  "pivot": {
+    "x": 48,
+    "y": 88
+  },
+  "animations": {
+    "idle": {
+      "frames": 4,
+      "fps": 5,
+      "loop": true
+    }
+  }
+}

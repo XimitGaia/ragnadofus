@@ -1,0 +1,49 @@
+{
+  "canvas": {
+    "w": 64,
+    "h": 96
+  },
+  "pivot": {
+    "x": 32,
+    "y": 88
+  },
+  "directions": [
+    "S",
+    "SE",
+    "E",
+    "NE",
+    "N"
+  ],
+  "mirror_for": {
+    "SW": "SE",
+    "W": "E",
+    "NW": "NE"
+  },
+  "animations": {
+    "idle": {
+      "frames": 4,
+      "fps": 5,
+      "loop": true
+    },
+    "walk": {
+      "frames": 8,
+      "fps": 9,
+      "loop": true
+    },
+    "attack": {
+      "frames": 5,
+      "fps": 11,
+      "loop": false
+    },
+    "jump": {
+      "frames": 4,
+      "fps": 8,
+      "loop": false
+    },
+    "fall": {
+      "frames": 3,
+      "fps": 8,
+      "loop": false
+    }
+  }
+}

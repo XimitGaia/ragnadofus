@@ -1,0 +1,27 @@
+{
+  "exterior_canvas": {
+    "w": 192,
+    "h": 192
+  },
+  "exterior_pivot": {
+    "x": 96,
+    "y": 191
+  },
+  "views": [
+    "front",
+    "front_right",
+    "right",
+    "back_right",
+    "back",
+    "back_left",
+    "left",
+    "front_left"
+  ],
+  "interior": "castle_interior.png",
+  "interior_canvas": {
+    "w": 256,
+    "h": 192
+  },
+  "rooms": 1,
+  "entry_side": "front"
+}
