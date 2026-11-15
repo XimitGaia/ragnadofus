@@ -58,23 +58,26 @@ pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
     map
 }
 
+/// Footprint da casa, em tiles: retângulo `(X0,Y0)`–`(X1,Y1)`; porta na parede de cima.
+pub const HOUSE_X0: u32 = 20;
+pub const HOUSE_Y0: u32 = 34;
+pub const HOUSE_X1: u32 = 28;
+pub const HOUSE_Y1: u32 = 42;
+/// Coluna do vão da porta (2 tiles), na parede de cima (`HOUSE_Y0`).
+pub const HOUSE_DOOR_X: u32 = 24;
+
 /// Casa: retângulo de paredes (não-caminháveis) com um **vão de porta** por onde se
 /// entra. Interior caminhável. Como o cliente desenha pedra onde não é caminhável, a
-/// casa aparece sozinha. Telhado que some ao entrar (D1.4) = polimento futuro.
+/// casa aparece sozinha; o telhado (que some ao entrar, D1.4) é desenhado pelo cliente.
 fn build_house(map: &mut Walkmap) {
-    const HX0: u32 = 20;
-    const HY0: u32 = 34; // parede de cima (onde fica a porta)
-    const HX1: u32 = 28;
-    const HY1: u32 = 42;
-    const DOOR_X: u32 = 24; // vão de 2 tiles na parede de cima
-
-    if HX1 >= map.width() || HY1 >= map.height() {
+    if HOUSE_X1 >= map.width() || HOUSE_Y1 >= map.height() {
         return;
     }
-    for x in HX0..=HX1 {
-        for y in HY0..=HY1 {
-            let perimeter = x == HX0 || x == HX1 || y == HY0 || y == HY1;
-            let door = y == HY0 && (x == DOOR_X || x == DOOR_X + 1);
+    for x in HOUSE_X0..=HOUSE_X1 {
+        for y in HOUSE_Y0..=HOUSE_Y1 {
+            let perimeter =
+                x == HOUSE_X0 || x == HOUSE_X1 || y == HOUSE_Y0 || y == HOUSE_Y1;
+            let door = y == HOUSE_Y0 && (x == HOUSE_DOOR_X || x == HOUSE_DOOR_X + 1);
             if perimeter && !door {
                 map.set(x, y, SubCell { height: 0, walkable: false });
             }

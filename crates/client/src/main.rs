@@ -22,6 +22,7 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
+use shared::world::{HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1};
 use shared::{
     build_walkmap, AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin, ZoneSeed,
 };
@@ -37,6 +38,14 @@ struct MyPlayer(Option<PlayerId>);
 /// Evita redesenhar a zona se a `ZoneSeed` chegar mais de uma vez.
 #[derive(Resource, Default)]
 struct ZoneBuilt(bool);
+
+/// Camada do telhado da casa (some quando o player entra — D1.4).
+#[derive(Component)]
+struct RoofLayer;
+
+/// Altura visual (px na tela) da parede da casa (ajustável). ~tronco do personagem:
+/// quem está atrás ESPIA por cima em vez de ser "engolido" pela parede.
+const WALL_HEIGHT_PX: f32 = 40.0;
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -71,7 +80,8 @@ fn main() -> anyhow::Result<()> {
     .add_systems(
         Update,
         (read_right_click, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
-    );
+    )
+    .add_systems(Update, roof_fade);
 
     connect(&mut app, server_addr)?;
     info!("cliente ragnadofus conectando a {server_addr}");
@@ -163,6 +173,64 @@ fn on_zone_received(
         anchor: TilemapAnchor::Center,
         ..default()
     });
+
+    // Telhado: tilemap separado sobre o footprint da casa, ACIMA dos players (z=200).
+    // Some quando o player entra (sistema `roof_fade`).
+    let mut roof_storage = TileStorage::empty(map_size);
+    let roof_entity = commands.spawn_empty().id();
+    for y in HOUSE_Y0..=HOUSE_Y1.min(map_size.y.saturating_sub(1)) {
+        for x in HOUSE_X0..=HOUSE_X1.min(map_size.x.saturating_sub(1)) {
+            let tile_pos = TilePos { x, y };
+            let tile_entity = commands
+                .spawn(TileBundle {
+                    position: tile_pos,
+                    texture_index: TileTextureIndex(3), // telhado
+                    tilemap_id: TilemapId(roof_entity),
+                    ..Default::default()
+                })
+                .id();
+            roof_storage.set(&tile_pos, tile_entity);
+        }
+    }
+    commands.entity(roof_entity).insert((
+        TilemapBundle {
+            grid_size: tile_size.into(),
+            size: map_size,
+            storage: roof_storage,
+            texture: TilemapTexture::Single(asset_server.load("tiles.png")),
+            tile_size,
+            map_type: TilemapType::Isometric(IsoCoordSystem::Diamond),
+            anchor: TilemapAnchor::Center,
+            // telhado erguido à altura das paredes (acima dos players, z=200).
+            transform: Transform::from_xyz(0.0, WALL_HEIGHT_PX, 200.0),
+            ..default()
+        },
+        RoofLayer,
+    ));
+
+    // Faces verticais das paredes (dão ALTURA à casa): um sprite escuro do chão até o
+    // topo, em cada célula de parede. z=50 (acima do chão, abaixo do player: o player
+    // aparece na frente — y-sort fino por altura é refinamento futuro).
+    let (origin, unit_x, unit_y) = iso_basis();
+    for y in HOUSE_Y0..=HOUSE_Y1.min(map_size.y.saturating_sub(1)) {
+        for x in HOUSE_X0..=HOUSE_X1.min(map_size.x.saturating_sub(1)) {
+            let is_wall = map.get(x, y).map(|c| !c.walkable).unwrap_or(false);
+            if !is_wall {
+                continue;
+            }
+            let base = project(Vec2::new(x as f32, y as f32), origin, unit_x, unit_y);
+            commands.spawn((
+                Sprite {
+                    color: Color::srgb(0.30, 0.31, 0.36),
+                    custom_size: Some(Vec2::new(64.0, WALL_HEIGHT_PX)),
+                    ..default()
+                },
+                Anchor::BOTTOM_CENTER,
+                Transform::from_xyz(base.x, base.y, ysort_z(base.y)),
+            ));
+        }
+    }
+
     built.0 = true;
     info!("zona desenhada: {}x{} (seed {:#x})", zone.tiles_x, zone.tiles_y, zone.seed);
 }
@@ -256,6 +324,12 @@ fn project(pos: Vec2, origin: Vec2, unit_x: Vec2, unit_y: Vec2) -> Vec2 {
     origin + pos.x * unit_x + pos.y * unit_y
 }
 
+/// Z de y-sort: quem tem a BASE (pés) mais embaixo na tela (mais perto) desenha por cima.
+/// Banda ~[80,120] — acima do chão (z~0), abaixo do telhado (z=200).
+fn ysort_z(screen_y: f32) -> f32 {
+    100.0 - screen_y * 0.02
+}
+
 /// Projeta a `Position` replicada (players e NPC) para o `Transform` de render no iso.
 fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
     let (origin, unit_x, unit_y) = iso_basis();
@@ -263,6 +337,7 @@ fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
         let screen = project(position.0, origin, unit_x, unit_y);
         transform.translation.x = screen.x;
         transform.translation.y = screen.y;
+        transform.translation.z = ysort_z(screen.y);
     }
 }
 
@@ -289,6 +364,32 @@ fn camera_follow(
     for mut transform in &mut cameras {
         transform.translation.x = screen.x;
         transform.translation.y = screen.y;
+    }
+}
+
+/// O telhado SOME quando o próprio player está dentro do footprint da casa (D1.4).
+fn roof_fade(
+    me: Res<MyPlayer>,
+    players: Query<(&Player, &Position)>,
+    mut roofs: Query<&mut Visibility, With<RoofLayer>>,
+) {
+    let Some(my_id) = me.0 else {
+        return;
+    };
+    let Some((_, position)) = players.iter().find(|(p, _)| p.0 == my_id) else {
+        return;
+    };
+    let (cx, cy) = (position.0.x.round(), position.0.y.round());
+    let inside = cx >= HOUSE_X0 as f32
+        && cx <= HOUSE_X1 as f32
+        && cy >= HOUSE_Y0 as f32
+        && cy <= HOUSE_Y1 as f32;
+    for mut visibility in &mut roofs {
+        *visibility = if inside {
+            Visibility::Hidden
+        } else {
+            Visibility::Visible
+        };
     }
 }
 
