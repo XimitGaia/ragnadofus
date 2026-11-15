@@ -22,9 +22,10 @@ use bevy_replicon_renet2::{
     renet2::{ConnectionConfig, RenetClient},
     RenetChannelsExt, RepliconRenetPlugins,
 };
-use shared::world::{HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1};
+use shared::world::{HOUSE_DOOR_X, HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1};
 use shared::{
-    build_walkmap, AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin, ZoneSeed,
+    build_walkmap, AssignedPlayer, MoveTo, Npc, Player, PlayerId, Position, ProtocolPlugin, Walkmap,
+    ZoneSeed,
 };
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::SystemTime;
@@ -43,9 +44,57 @@ struct ZoneBuilt(bool);
 #[derive(Component)]
 struct RoofLayer;
 
-/// Altura visual (px na tela) da parede da casa (ajustável). ~tronco do personagem:
-/// quem está atrás ESPIA por cima em vez de ser "engolido" pela parede.
-const WALL_HEIGHT_PX: f32 = 40.0;
+/// Parede da FRENTE (lado da câmera: `x==X0` ou `y==Y0`). Fica transparente quando o
+/// próprio player está dentro, pra enxergar o interior (cutaway estilo iso).
+#[derive(Component)]
+struct NearWall;
+
+/// Célula (tile) de uma peça de cenário desenhada como sprite (parede/terreno). Permite
+/// ao sistema de VISÃO saber se a peça está no campo de visão do player e escondê-la.
+#[derive(Component, Clone, Copy)]
+struct Cell {
+    x: u32,
+    y: u32,
+}
+
+/// Estado atual da visão: `true` = o próprio player está DENTRO de um ambiente fechado.
+/// Guardado pra só reprocessar o cenário estático (tiles) na TRANSIÇÃO entrar/sair.
+#[derive(Resource)]
+struct VisionState {
+    inside: bool,
+}
+
+impl Default for VisionState {
+    fn default() -> Self {
+        // começa "indeterminado" (!= qualquer estado real) forçando a 1ª aplicação.
+        Self { inside: true }
+    }
+}
+
+/// Quantos tiles pra fora da porta o player enxerga quando está dentro (visão curta).
+const DOOR_VIEW: u32 = 3;
+
+/// Está no footprint (retângulo) da casa?
+fn in_house(x: u32, y: u32) -> bool {
+    (HOUSE_X0..=HOUSE_X1).contains(&x) && (HOUSE_Y0..=HOUSE_Y1).contains(&y)
+}
+
+/// Campo de visão quando o player está DENTRO: todo o interior/paredes da casa + uma
+/// faixa curta à frente da porta (para enxergar quem chega/sair).
+fn in_vision(x: u32, y: u32) -> bool {
+    in_house(x, y)
+        || (y < HOUSE_Y0
+            && HOUSE_Y0 - y <= DOOR_VIEW
+            && x + 1 >= HOUSE_DOOR_X
+            && x <= HOUSE_DOOR_X + 2)
+}
+
+/// Altura visual (px na tela) da parede da casa — 3 tiles (tile = 32px). As paredes ficam
+/// num z baixo, então não "mordem" o boneco mesmo altas.
+const WALL_HEIGHT_PX: f32 = 96.0;
+
+/// Altura visual (px na tela) de 1 nível de elevação do terreno (platô/rampa).
+const HEIGHT_PER_LEVEL: f32 = 18.0;
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -74,6 +123,7 @@ fn main() -> anyhow::Result<()> {
     .add_plugins(ProtocolPlugin)
     .init_resource::<MyPlayer>()
     .init_resource::<ZoneBuilt>()
+    .init_resource::<VisionState>()
     .add_observer(on_assigned_player)
     .add_observer(on_zone_received)
     .add_systems(Startup, (setup_scene, setup_ui))
@@ -81,7 +131,7 @@ fn main() -> anyhow::Result<()> {
         Update,
         (read_right_click, hydrate_players, hydrate_npcs, sync_transforms, camera_follow).chain(),
     )
-    .add_systems(Update, roof_fade);
+    .add_systems(Update, (roof_fade, apply_vision));
 
     connect(&mut app, server_addr)?;
     info!("cliente ragnadofus conectando a {server_addr}");
@@ -174,44 +224,39 @@ fn on_zone_received(
         ..default()
     });
 
-    // Telhado: tilemap separado sobre o footprint da casa, ACIMA dos players (z=200).
-    // Some quando o player entra (sistema `roof_fade`).
-    let mut roof_storage = TileStorage::empty(map_size);
-    let roof_entity = commands.spawn_empty().id();
+    let (origin, unit_x, unit_y) = iso_basis();
+
+    // Telhado: 1 sprite de losango por célula do footprint, erguido à altura das paredes,
+    // ordenado por PROFUNDIDADE (depth_z): quem está NA FRENTE da casa renderiza por cima
+    // do telhado; quem está atrás/dentro fica coberto. Some ao entrar (roof_fade).
     for y in HOUSE_Y0..=HOUSE_Y1.min(map_size.y.saturating_sub(1)) {
         for x in HOUSE_X0..=HOUSE_X1.min(map_size.x.saturating_sub(1)) {
-            let tile_pos = TilePos { x, y };
-            let tile_entity = commands
-                .spawn(TileBundle {
-                    position: tile_pos,
-                    texture_index: TileTextureIndex(3), // telhado
-                    tilemap_id: TilemapId(roof_entity),
-                    ..Default::default()
-                })
-                .id();
-            roof_storage.set(&tile_pos, tile_entity);
+            let base = project(Vec2::new(x as f32, y as f32), origin, unit_x, unit_y);
+            commands.spawn((
+                Sprite {
+                    image: asset_server.load("tiles.png"),
+                    rect: Some(Rect::new(192.0, 0.0, 256.0, 32.0)), // tile 3 = telhado
+                    custom_size: Some(Vec2::new(64.0, 32.0)),
+                    ..default()
+                },
+                Transform::from_xyz(base.x, base.y + WALL_HEIGHT_PX, depth_z(x as f32, y as f32)),
+                RoofLayer,
+            ));
         }
     }
-    commands.entity(roof_entity).insert((
-        TilemapBundle {
-            grid_size: tile_size.into(),
-            size: map_size,
-            storage: roof_storage,
-            texture: TilemapTexture::Single(asset_server.load("tiles.png")),
-            tile_size,
-            map_type: TilemapType::Isometric(IsoCoordSystem::Diamond),
-            anchor: TilemapAnchor::Center,
-            // telhado erguido à altura das paredes (acima dos players, z=200).
-            transform: Transform::from_xyz(0.0, WALL_HEIGHT_PX, 200.0),
-            ..default()
-        },
-        RoofLayer,
-    ));
 
-    // Faces verticais das paredes (dão ALTURA à casa): um sprite escuro do chão até o
-    // topo, em cada célula de parede. z=50 (acima do chão, abaixo do player: o player
-    // aparece na frente — y-sort fino por altura é refinamento futuro).
-    let (origin, unit_x, unit_y) = iso_basis();
+    // Faces verticais das paredes (dão ALTURA à casa): sprite escuro do chão até o topo,
+    // em cada célula de parede. z baixo (não morde o boneco).
+    // Centro da casa na TELA: paredes abaixo dele são as da FRENTE (lado da câmera).
+    let house_center = project(
+        Vec2::new(
+            (HOUSE_X0 + HOUSE_X1) as f32 / 2.0,
+            (HOUSE_Y0 + HOUSE_Y1) as f32 / 2.0,
+        ),
+        origin,
+        unit_x,
+        unit_y,
+    );
     for y in HOUSE_Y0..=HOUSE_Y1.min(map_size.y.saturating_sub(1)) {
         for x in HOUSE_X0..=HOUSE_X1.min(map_size.x.saturating_sub(1)) {
             let is_wall = map.get(x, y).map(|c| !c.walkable).unwrap_or(false);
@@ -219,7 +264,7 @@ fn on_zone_received(
                 continue;
             }
             let base = project(Vec2::new(x as f32, y as f32), origin, unit_x, unit_y);
-            commands.spawn((
+            let mut wall = commands.spawn((
                 Sprite {
                     color: Color::srgb(0.30, 0.31, 0.36),
                     custom_size: Some(Vec2::new(64.0, WALL_HEIGHT_PX)),
@@ -229,9 +274,51 @@ fn on_zone_received(
                 // z baixo (acima do chão, ABAIXO dos personagens): a parede nunca "morde"
                 // o boneco. A oclusão iso bonita volta com a arte real das paredes.
                 Transform::from_xyz(base.x, base.y, 10.0),
+                Cell { x, y },
+            ));
+            // Paredes da FRENTE (abaixo do centro da casa na tela, lado da câmera) viram
+            // transparentes ao entrar (cutaway) — as duas de baixo (esq+dir).
+            if base.y < house_center.y {
+                wall.insert(NearWall);
+            }
+        }
+    }
+
+    // Terreno elevado (platô/rampa): penhasco (face) + topo de grama erguido, por célula
+    // com altura > 0. z baixo (abaixo dos personagens) para não "morder" o boneco.
+    for y in 0..map_size.y {
+        for x in 0..map_size.x {
+            let h = map.get(x, y).map(|c| c.height).unwrap_or(0);
+            if h <= 0 {
+                continue;
+            }
+            let base = project(Vec2::new(x as f32, y as f32), origin, unit_x, unit_y);
+            let lift = h as f32 * HEIGHT_PER_LEVEL;
+            commands.spawn((
+                Sprite {
+                    color: Color::srgb(0.42, 0.34, 0.24), // penhasco (terra)
+                    custom_size: Some(Vec2::new(64.0, lift)),
+                    ..default()
+                },
+                Anchor::BOTTOM_CENTER,
+                Transform::from_xyz(base.x, base.y, depth_z(x as f32, y as f32) - 0.1),
+                Cell { x, y },
+            ));
+            commands.spawn((
+                Sprite {
+                    image: asset_server.load("tiles.png"),
+                    rect: Some(Rect::new(0.0, 0.0, 64.0, 32.0)), // topo = losango de grama
+                    custom_size: Some(Vec2::new(64.0, 32.0)),
+                    ..default()
+                },
+                Transform::from_xyz(base.x, base.y + lift, depth_z(x as f32, y as f32)),
+                Cell { x, y },
             ));
         }
     }
+
+    // Guarda a walkmap no cliente (para o render erguer player/NPC sobre o relevo).
+    commands.insert_resource(map.clone());
 
     built.0 = true;
     info!("zona desenhada: {}x{} (seed {:#x})", zone.tiles_x, zone.tiles_y, zone.seed);
@@ -326,20 +413,34 @@ fn project(pos: Vec2, origin: Vec2, unit_x: Vec2, unit_y: Vec2) -> Vec2 {
     origin + pos.x * unit_x + pos.y * unit_y
 }
 
-/// Z de y-sort: quem tem a BASE (pés) mais embaixo na tela (mais perto) desenha por cima.
-/// Banda ~[80,120] — acima do chão (z~0), abaixo do telhado (z=200).
-fn ysort_z(screen_y: f32) -> f32 {
-    100.0 - screen_y * 0.02
+/// Z de profundidade iso: quem está MAIS À FRENTE (menor x+y, mais perto da câmera)
+/// desenha por cima; quem está atrás é ocultado. Banda ~[60,100] — acima do chão/paredes,
+/// abaixo do telhado (z=200).
+fn depth_z(tile_x: f32, tile_y: f32) -> f32 {
+    100.0 - (tile_x + tile_y) * 0.3
 }
 
 /// Projeta a `Position` replicada (players e NPC) para o `Transform` de render no iso.
-fn sync_transforms(mut entities: Query<(&Position, &mut Transform)>) {
+fn sync_transforms(
+    map: Option<Res<Walkmap>>,
+    mut entities: Query<(&Position, &mut Transform)>,
+) {
     let (origin, unit_x, unit_y) = iso_basis();
     for (position, mut transform) in &mut entities {
         let screen = project(position.0, origin, unit_x, unit_y);
+        // ergue a entidade pela altura do tile onde está (fica EM CIMA do relevo).
+        let lift = match map.as_deref() {
+            Some(m) => m
+                .cell_at_world(position.0)
+                .and_then(|(x, y)| m.get(x, y))
+                .map(|c| c.height as f32 * HEIGHT_PER_LEVEL)
+                .unwrap_or(0.0),
+            None => 0.0,
+        };
         transform.translation.x = screen.x;
-        transform.translation.y = screen.y;
-        transform.translation.z = ysort_z(screen.y);
+        transform.translation.y = screen.y + lift;
+        // +0.1: desempata para a entidade ficar EM CIMA do relevo onde ela pisa.
+        transform.translation.z = depth_z(position.0.x, position.0.y) + 0.1;
     }
 }
 
@@ -369,11 +470,13 @@ fn camera_follow(
     }
 }
 
-/// O telhado SOME quando o próprio player está dentro do footprint da casa (D1.4).
+/// Ao entrar na casa: o telhado SOME e as paredes da FRENTE ficam transparentes — pra
+/// enxergar o interior (cutaway iso, D1.4). Ao sair, tudo volta ao normal.
 fn roof_fade(
     me: Res<MyPlayer>,
     players: Query<(&Player, &Position)>,
     mut roofs: Query<&mut Visibility, With<RoofLayer>>,
+    mut near_walls: Query<&mut Sprite, With<NearWall>>,
 ) {
     let Some(my_id) = me.0 else {
         return;
@@ -392,6 +495,63 @@ fn roof_fade(
         } else {
             Visibility::Visible
         };
+    }
+    // Paredes da frente: fantasma (quase transparentes) dentro, sólidas fora.
+    let alpha = if inside { 0.15 } else { 1.0 };
+    for mut sprite in &mut near_walls {
+        sprite.color = sprite.color.with_alpha(alpha);
+    }
+}
+
+/// Visão por ambiente: quando o PRÓPRIO player está DENTRO da casa, só o interior (+ uma
+/// faixa curta à frente da porta) fica visível; o resto do mundo e os players lá fora são
+/// ocultados e o fundo vira preto (sensação de ambiente fechado). Quando está FORA, o mundo
+/// aparece normal e os players que estão DENTRO de casas ficam ocultos (não se vê por cima
+/// do telhado). O cenário estático só é reprocessado na TRANSIÇÃO entrar/sair.
+fn apply_vision(
+    me: Res<MyPlayer>,
+    players: Query<(&Player, &Position)>,
+    mut state: ResMut<VisionState>,
+    mut clear: ResMut<ClearColor>,
+    mut tiles: Query<(&TilePos, &mut TileVisible)>,
+    mut scenery: Query<(&Cell, &mut Visibility), (Without<Player>, Without<Npc>)>,
+    mut actors: Query<(&Position, &mut Visibility), Or<(With<Player>, With<Npc>)>>,
+) {
+    let inside = me
+        .0
+        .and_then(|id| players.iter().find(|(p, _)| p.0 == id))
+        .map(|(_, pos)| {
+            let (x, y) = (pos.0.x.round(), pos.0.y.round());
+            x >= 0.0 && y >= 0.0 && in_house(x as u32, y as u32)
+        })
+        .unwrap_or(false);
+
+    // Fundo: preto dentro (ambiente fechado), neutro fora.
+    clear.0 = if inside { Color::BLACK } else { Color::srgb(0.1, 0.1, 0.1) };
+
+    // Atores (players/NPC) — todo frame, pois se movem.
+    for (pos, mut vis) in &mut actors {
+        let (ax, ay) = (pos.0.x.round(), pos.0.y.round());
+        let show = if ax < 0.0 || ay < 0.0 {
+            !inside
+        } else if inside {
+            in_vision(ax as u32, ay as u32)
+        } else {
+            !in_house(ax as u32, ay as u32) // de fora, não se vê quem está dentro
+        };
+        *vis = if show { Visibility::Visible } else { Visibility::Hidden };
+    }
+
+    // Cenário estático (chão + paredes/terreno) — só muda na transição entrar/sair.
+    if state.inside != inside {
+        state.inside = inside;
+        for (tp, mut tv) in &mut tiles {
+            tv.0 = !inside || in_vision(tp.x, tp.y);
+        }
+        for (cell, mut vis) in &mut scenery {
+            let show = !inside || in_vision(cell.x, cell.y);
+            *vis = if show { Visibility::Visible } else { Visibility::Hidden };
+        }
     }
 }
 

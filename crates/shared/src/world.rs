@@ -55,7 +55,37 @@ pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
     }
 
     build_house(&mut map);
+    build_plateau(&mut map);
     map
+}
+
+/// Platô (altura 2) com uma RAMPA (altura 1) numa borda — a rampa liga o chão (0) ao
+/// platô (2) em degraus de 1 (caminhável); as outras bordas são penhasco 0→2 (degrau 2,
+/// bloqueado). Exercita a elevação real (D1.1/D2.3): só sobe pela rampa.
+fn build_plateau(map: &mut Walkmap) {
+    const X0: u32 = 38;
+    const X1: u32 = 46;
+    const Y0: u32 = 22;
+    const Y1: u32 = 30;
+    if X1 >= map.width() || Y1 + 1 >= map.height() {
+        return;
+    }
+    for x in X0..=X1 {
+        for y in Y0..=Y1 {
+            if let Some(mut cell) = map.get(x, y) {
+                cell.height = 2;
+                map.set(x, y, cell);
+            }
+        }
+    }
+    // Rampa (altura 1) na borda sul (y = Y1+1): chão(0) → rampa(1) → platô(2).
+    let ramp_y = Y1 + 1;
+    for x in X0..=X1 {
+        if let Some(mut cell) = map.get(x, ramp_y) {
+            cell.height = 1;
+            map.set(x, ramp_y, cell);
+        }
+    }
 }
 
 /// Footprint da casa, em tiles: retângulo `(X0,Y0)`–`(X1,Y1)`; porta na parede de cima.
