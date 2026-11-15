@@ -127,10 +127,14 @@ fn setup_server(app: &mut App, port: u16) -> anyhow::Result<()> {
 fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands) {
     let client_entity = trigger.event().entity;
     let player_id = PlayerId(client_entity.to_bits());
-    info!("cliente conectado: {client_entity} → player {player_id:?}");
+    // Spawn no CENTRO da walkmap (não no canto 0,0, que fica na borda e bloqueia ir para
+    // coordenadas negativas). Leve offset por cliente para não sobrepor os players.
+    let offset = (client_entity.to_bits() % 6) as f32 * 24.0;
+    let spawn = subcell_center((128, 128)) + Vec2::new(offset, 0.0);
+    info!("cliente conectado: {client_entity} → player {player_id:?} em {spawn:?}");
     commands.spawn((
         Player(player_id),
-        Position(Vec2::ZERO),
+        Position(spawn),
         Velocity(Vec2::ZERO),
         MoveIntent(Vec2::ZERO),
         Owner(ClientId::Client(client_entity)),
