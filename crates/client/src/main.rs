@@ -167,15 +167,16 @@ fn on_zone_received(
     info!("zona desenhada: {}x{} (seed {:#x})", zone.tiles_x, zone.tiles_y, zone.seed);
 }
 
-/// Clique DIREITO → converte o cursor na célula (tile) via `from_world_pos` e envia o
-/// destino ao servidor (click-to-move estilo Ragnarok).
+/// Botão DIREITO **segurado** → converte o cursor na célula (tile) via `from_world_pos` e
+/// re-envia o destino a cada frame (click-to-move contínuo, estilo Diablo/Ragnarok: segura
+/// e o personagem segue o cursor).
 fn read_right_click(
     mut commands: Commands,
     buttons: Res<ButtonInput<MouseButton>>,
     windows: Query<&Window>,
     cameras: Query<(&Camera, &GlobalTransform)>,
 ) {
-    if !buttons.just_pressed(MouseButton::Right) {
+    if !buttons.pressed(MouseButton::Right) {
         return;
     }
     let (Ok(window), Ok((camera, camera_tf))) = (windows.single(), cameras.single()) else {

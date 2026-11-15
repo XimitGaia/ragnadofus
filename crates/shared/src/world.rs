@@ -53,7 +53,33 @@ pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
         }
         map.set(wall_x, y, SubCell { height: 0, walkable: false });
     }
+
+    build_house(&mut map);
     map
+}
+
+/// Casa: retângulo de paredes (não-caminháveis) com um **vão de porta** por onde se
+/// entra. Interior caminhável. Como o cliente desenha pedra onde não é caminhável, a
+/// casa aparece sozinha. Telhado que some ao entrar (D1.4) = polimento futuro.
+fn build_house(map: &mut Walkmap) {
+    const HX0: u32 = 20;
+    const HY0: u32 = 34; // parede de cima (onde fica a porta)
+    const HX1: u32 = 28;
+    const HY1: u32 = 42;
+    const DOOR_X: u32 = 24; // vão de 2 tiles na parede de cima
+
+    if HX1 >= map.width() || HY1 >= map.height() {
+        return;
+    }
+    for x in HX0..=HX1 {
+        for y in HY0..=HY1 {
+            let perimeter = x == HX0 || x == HX1 || y == HY0 || y == HY1;
+            let door = y == HY0 && (x == DOOR_X || x == DOOR_X + 1);
+            if perimeter && !door {
+                map.set(x, y, SubCell { height: 0, walkable: false });
+            }
+        }
+    }
 }
 
 /// Backend em memória (default/testes e fallback quando não há Postgres).
