@@ -11,6 +11,7 @@
 //! quando a identidade do próprio player for replicada / com A* no servidor — Passo 5).
 
 use bevy::prelude::*;
+use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_ecs_tilemap::prelude::*;
 use bevy_replicon::prelude::*;
 use bevy_replicon_renet2::{
@@ -31,7 +32,14 @@ fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| DEFAULT_SERVER.parse().unwrap_or(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 5000)));
 
     let mut app = App::new();
-    app.add_plugins(
+    // Atualiza o app continuamente mesmo SEM foco da janela — senão o loop throttla, o
+    // cliente para de mandar keepalive do netcode e a conexão cai (timeout). Essencial
+    // para multiplayer com janela em segundo plano.
+    app.insert_resource(WinitSettings {
+        focused_mode: UpdateMode::Continuous,
+        unfocused_mode: UpdateMode::Continuous,
+    })
+    .add_plugins(
         DefaultPlugins
             .set(ImagePlugin::default_nearest())
             .set(AssetPlugin {
