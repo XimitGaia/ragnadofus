@@ -11,6 +11,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Position(#[serde(with = "crate::serde_helpers::vec2")] pub Vec2);
 
+/// Nível/altura de superfície em que a entidade está (multi-nível 2.5D): 0 = térreo, >0 =
+/// 2º andar/telhado. Replicado para o cliente erguer o sprite no piso certo.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Elevation(pub i32);
+
 /// Velocidade atual da entidade.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct Velocity(pub Vec2);

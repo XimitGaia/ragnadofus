@@ -55,8 +55,38 @@ pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
     }
 
     build_house(&mut map);
+    build_house_floors(&mut map);
     build_plateau(&mut map);
     map
+}
+
+/// Níveis da casa (multi-nível 2.5D): térreo (0), 2º andar e telhado, ambos caminháveis.
+pub const FLOOR_LEVEL: i32 = 3;
+pub const ROOF_LEVEL: i32 = 6;
+/// Colunas (x) das duas escadas: A (térreo→2º andar, lado leste) e B (2º andar→telhado,
+/// lado oeste). Cada escada é uma rampa de superfícies de +1 (≤ STEP_MAX).
+pub const STAIR_X: u32 = HOUSE_X1 - 2;
+pub const STAIR_X2: u32 = HOUSE_X0 + 2;
+
+fn build_house_floors(map: &mut Walkmap) {
+    if HOUSE_X1 >= map.width() || HOUSE_Y1 >= map.height() {
+        return;
+    }
+    for x in HOUSE_X0..=HOUSE_X1 {
+        for y in HOUSE_Y0..=HOUSE_Y1 {
+            map.add_surface(x, y, ROOF_LEVEL); // telhado caminhável sobre tudo
+            let interior = x > HOUSE_X0 && x < HOUSE_X1 && y > HOUSE_Y0 && y < HOUSE_Y1;
+            if interior {
+                map.add_surface(x, y, FLOOR_LEVEL); // piso do 2º andar sobre o interior
+            }
+        }
+    }
+    // Escada A (térreo 0 → 2º andar 3): superfícies 1,2 (o 3 já é o 2º andar na célula topo).
+    map.add_surface(STAIR_X, HOUSE_Y1 - 2, 1);
+    map.add_surface(STAIR_X, HOUSE_Y1 - 3, 2);
+    // Escada B (2º andar 3 → telhado 6): superfícies 4,5 (o 6 já é o telhado na célula topo).
+    map.add_surface(STAIR_X2, HOUSE_Y0 + 4, 4);
+    map.add_surface(STAIR_X2, HOUSE_Y0 + 5, 5);
 }
 
 /// Platô (altura 2) com uma RAMPA (altura 1) numa borda — a rampa liga o chão (0) ao

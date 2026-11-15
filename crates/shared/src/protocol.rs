@@ -2,7 +2,7 @@
 //! protocolo precisa bater nos dois lados). Componentes autoritativos do servidor são
 //! replicados aos clientes; o cliente envia apenas o comando de movimento (intenção).
 
-use crate::components::{Npc, Player, Position};
+use crate::components::{Elevation, Npc, Player, Position};
 use crate::ids::PlayerId;
 use crate::world::ZoneSeed;
 use bevy::prelude::*;
@@ -23,7 +23,15 @@ pub struct AssignedPlayer(pub PlayerId);
 pub struct MoveTo {
     pub tx: u32,
     pub ty: u32,
+    /// Elevação-alvo (multi-nível): o servidor escolhe a superfície da célula destino mais
+    /// próxima disso (ex.: clicar a escada manda `te` alto → sobe pro telhado).
+    pub te: i32,
 }
+
+/// Cliente → servidor: pedido de PULAR/CAIR um nível (tecla Enter). O servidor decide se há
+/// superfície abaixo e baixa a [`Elevation`] (multi-nível 2.5D).
+#[derive(Event, Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Jump;
 
 /// Registra o protocolo. Adicionado por ambos (cliente e servidor), depois de
 /// `RepliconPlugins`.
@@ -34,7 +42,9 @@ impl Plugin for ProtocolPlugin {
         app.replicate::<Position>()
             .replicate::<Player>()
             .replicate::<Npc>()
+            .replicate::<Elevation>()
             .add_client_event::<MoveTo>(Channel::Ordered)
+            .add_client_event::<Jump>(Channel::Ordered)
             .add_server_event::<AssignedPlayer>(Channel::Ordered)
             .add_server_event::<ZoneSeed>(Channel::Ordered);
     }

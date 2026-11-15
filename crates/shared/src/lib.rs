@@ -22,14 +22,14 @@ pub mod serde_helpers;
 pub mod walkmap;
 pub mod world;
 
-pub use components::{MoveIntent, Npc, Player, Position, Velocity};
+pub use components::{Elevation, MoveIntent, Npc, Player, Position, Velocity};
 pub use ids::{PlayerId, Tick};
 pub use movement::{MovementSet, WALK_SPEED};
 pub use network::{ClientMessage, ServerMessage};
 pub use npc::Patrol;
 pub use order::MoveOrder;
 pub use pathfinding::find_path;
-pub use protocol::{AssignedPlayer, MoveTo, ProtocolPlugin};
+pub use protocol::{AssignedPlayer, Jump, MoveTo, ProtocolPlugin};
 pub use walkmap::{cell_center, resolve_move, SubCell, Walkmap};
 pub use world::{build_walkmap, InMemoryRepository, RepoError, WorldRepository, ZoneSeed};
 

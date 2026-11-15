@@ -16,7 +16,7 @@ const WAYPOINT_EPS: f32 = 0.15;
 pub struct Patrol {
     goals: Vec<(u32, u32)>,
     goal_idx: usize,
-    path: Vec<(u32, u32)>,
+    path: Vec<(u32, u32, i32)>,
     step: usize,
 }
 
@@ -49,7 +49,7 @@ pub fn npc_ai(
                 continue;
             };
             let goal = patrol.goals[patrol.goal_idx];
-            match find_path(map, start, goal) {
+            match find_path(map, start, 0, goal, 0) {
                 Some(path) if path.len() > 1 => {
                     patrol.path = path;
                     patrol.step = 1; // índice 0 é a célula atual
@@ -65,11 +65,11 @@ pub fn npc_ai(
             }
         }
 
-        let Some(&waypoint) = patrol.path.get(patrol.step) else {
+        let Some(&(wx, wy, _)) = patrol.path.get(patrol.step) else {
             intent.0 = Vec2::ZERO;
             continue;
         };
-        let to_waypoint = cell_center(waypoint) - position.0;
+        let to_waypoint = cell_center((wx, wy)) - position.0;
         if to_waypoint.length() <= WAYPOINT_EPS {
             patrol.step += 1;
             intent.0 = Vec2::ZERO;

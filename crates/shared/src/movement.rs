@@ -34,13 +34,14 @@ pub fn velocity_from_intent(mut query: Query<(&MoveIntent, &mut Velocity)>) {
 pub fn integrate_positions(
     time: Res<Time<Fixed>>,
     map: Option<Res<crate::walkmap::Walkmap>>,
-    mut query: Query<(&Velocity, &mut Position)>,
+    mut query: Query<(&Velocity, &mut Position, Option<&crate::components::Elevation>)>,
 ) {
     let dt = time.delta_secs();
-    for (velocity, mut position) in &mut query {
+    for (velocity, mut position, elevation) in &mut query {
         let desired = step_position(position.0, velocity.0, dt);
+        let elev = elevation.map_or(0, |e| e.0);
         position.0 = match map.as_deref() {
-            Some(map) => crate::walkmap::resolve_move(map, position.0, desired),
+            Some(map) => crate::walkmap::resolve_move(map, position.0, desired, elev),
             None => desired,
         };
     }
