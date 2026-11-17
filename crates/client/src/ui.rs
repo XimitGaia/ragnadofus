@@ -4,7 +4,7 @@ use bevy::picking::events::PointerClick;
 use bevy::prelude::*;
 use bevy::text::FontSize;
 
-use crate::CamOrbit;
+use crate::camera::CamOrbit;
 
 /// Registra a UI do cliente.
 pub(crate) fn plugin(app: &mut App) {
