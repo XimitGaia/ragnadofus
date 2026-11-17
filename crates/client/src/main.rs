@@ -15,23 +15,17 @@ use bevy::prelude::*;
 use bevy::camera::ScalingMode;
 use bevy::winit::{UpdateMode, WinitSettings};
 use bevy_replicon::prelude::*;
-use bevy_replicon_renet2::{
-    netcode::{ClientAuthentication, NativeSocket, NetcodeClientTransport},
-    renet2::{ConnectionConfig, RenetClient},
-    RenetChannelsExt, RepliconRenetPlugins,
-};
+use bevy_replicon_renet2::RepliconRenetPlugins;
 use shared::world::{
     is_stair_a, is_stair_b, FLOOR_LEVEL, HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1, ROOF_LEVEL,
     STAIR_X, STAIR_X2,
 };
 use shared::{
-    build_walkmap, AssignedPlayer, Elevation, Npc, Player, PlayerId, Position, ProtocolPlugin,
-    Walkmap, ZoneSeed,
+    build_walkmap, Elevation, Npc, Player, PlayerId, Position, ProtocolPlugin, Walkmap, ZoneSeed,
 };
-use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
-use std::time::SystemTime;
 
 mod input;
+mod net;
 mod ui;
 mod vision;
 
@@ -49,8 +43,6 @@ pub(crate) enum ClientSet {
     Camera,
     Vision,
 }
-
-const DEFAULT_SERVER: &str = "127.0.0.1:5000";
 
 /// Altura (em unidades de mundo = tiles) de 1 nível de elevação do terreno.
 const LEVEL_HEIGHT: f32 = 1.0;
@@ -247,13 +239,6 @@ impl DirectionalSprite {
 }
 
 fn main() -> anyhow::Result<()> {
-    let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or_else(|| {
-            DEFAULT_SERVER.parse().unwrap_or(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 5000))
-        });
-
     let mut app = App::new();
     // Atualiza o app continuamente mesmo SEM foco da janela — senão o loop throttla, o
     // cliente para de mandar keepalive do netcode e a conexão cai (timeout).
@@ -281,11 +266,9 @@ fn main() -> anyhow::Result<()> {
     )
     .add_plugins((RepliconPlugins, RepliconRenetPlugins))
     .add_plugins(ProtocolPlugin)
-    .init_resource::<MyPlayer>()
     .init_resource::<ZoneBuilt>()
     .init_resource::<CamOrbit>()
-    .add_plugins((ui::plugin, vision::plugin, input::plugin))
-    .add_observer(on_assigned_player)
+    .add_plugins((net::plugin, ui::plugin, vision::plugin, input::plugin))
     .add_observer(on_zone_received)
     .add_systems(Startup, (load_assets, setup_scene))
     .configure_sets(
@@ -314,73 +297,8 @@ fn main() -> anyhow::Result<()> {
         ),
     );
 
-    // Conecta só DEPOIS do warmup do render (veja `connect_when_ready`): o bevy_pbr
-    // compila pipelines nos primeiros frames e isso trava o loop por alguns segundos —
-    // se conectar nesse meio, a troca de handshake do netcode estoura o timeout. Esperar
-    // o loop ficar fluido faz o handshake completar na hora.
-    app.insert_resource(PendingConnect { addr: server_addr, frames: 0, attempted: false });
-    app.add_systems(Update, connect_when_ready);
-    info!("cliente ragnadofus (3D) — conectará a {server_addr} após warmup do render");
     app.run();
     Ok(())
-}
-
-/// Servidor-alvo + contador de warmup até disparar a conexão.
-#[derive(Resource)]
-struct PendingConnect {
-    addr: SocketAddr,
-    frames: u32,
-    attempted: bool,
-}
-
-/// Espera o render aquecer (~1,5s de frames fluidos) e então cria o `RenetClient` +
-/// transporte netcode. Evita que o stall de compilação de shaders mate o handshake.
-fn connect_when_ready(
-    mut pending: ResMut<PendingConnect>,
-    channels: Res<RepliconChannels>,
-    existing: Option<Res<RenetClient>>,
-    mut commands: Commands,
-) {
-    if pending.attempted || existing.is_some() {
-        return;
-    }
-    pending.frames += 1;
-    if pending.frames < 90 {
-        return;
-    }
-    pending.attempted = true;
-    match make_netcode(&channels, pending.addr) {
-        Ok((client, transport)) => {
-            commands.insert_resource(client);
-            commands.insert_resource(transport);
-            info!("conectando ao servidor {} (pós-warmup)", pending.addr);
-        }
-        Err(e) => error!("falha ao criar netcode: {e:?}"),
-    }
-}
-
-/// Monta o `RenetClient` + transporte netcode (UDP/renet2) para `server_addr`.
-fn make_netcode(
-    channels: &RepliconChannels,
-    server_addr: SocketAddr,
-) -> anyhow::Result<(RenetClient, NetcodeClientTransport)> {
-    let client = RenetClient::new(
-        ConnectionConfig::from_channels(channels.server_configs(), channels.client_configs()),
-        false,
-    );
-    let current_time = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH)?;
-    let client_id = current_time.as_millis() as u64;
-    let socket = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0))?;
-    let authentication = ClientAuthentication::Unsecure {
-        client_id,
-        protocol_id: shared::protocol::PROTOCOL_ID,
-        socket_id: 0,
-        server_addr,
-        user_data: None,
-    };
-    let native = NativeSocket::new(socket).map_err(|e| anyhow::anyhow!("socket: {e:?}"))?;
-    let transport = NetcodeClientTransport::new(current_time, authentication, native)?;
-    Ok((client, transport))
 }
 
 /// Carrega os sprites direcionais do cavaleiro (`knight/{s,se,e,ne,n}{,_walk0..3}.png`).
@@ -793,12 +711,6 @@ fn face_trees(
     for mut transform in &mut trees {
         transform.rotation = face;
     }
-}
-
-/// Guarda qual player é o deste cliente (recebido do servidor).
-fn on_assigned_player(trigger: On<AssignedPlayer>, mut me: ResMut<MyPlayer>) {
-    me.0 = Some(trigger.event().0);
-    info!("meu player: {:?}", trigger.event().0);
 }
 
 /// Gira a câmera livre ao redor do personagem (yaw): teclas Q/E **ou** scroll do mouse.
