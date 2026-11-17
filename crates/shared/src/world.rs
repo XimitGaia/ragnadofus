@@ -55,7 +55,80 @@ pub fn build_walkmap(zone: &ZoneSeed) -> Walkmap {
     }
 
     build_house(&mut map);
+    build_house_floors(&mut map);
+    build_plateau(&mut map);
     map
+}
+
+/// Níveis da casa (multi-nível 2.5D): térreo (0), 2º andar e telhado, ambos caminháveis.
+pub const FLOOR_LEVEL: i32 = 3;
+pub const ROOF_LEVEL: i32 = 6;
+/// Colunas (x) das duas escadas: A (térreo→2º andar, lado leste) e B (2º andar→telhado,
+/// lado oeste). Cada escada é uma rampa de superfícies de +1 (≤ STEP_MAX).
+pub const STAIR_X: u32 = HOUSE_X1 - 2;
+pub const STAIR_X2: u32 = HOUSE_X0 + 2;
+
+/// Célula do lance de escada A (térreo↔2º andar)? Fonte ÚNICA das células de escada —
+/// consumida pelo walkmap (rampa), pelo clique e pelos vãos de piso/telhado no cliente.
+#[must_use]
+pub fn is_stair_a(x: u32, y: u32) -> bool {
+    x == STAIR_X && (HOUSE_Y1 - 4..=HOUSE_Y1 - 2).contains(&y)
+}
+
+/// Célula do lance de escada B (2º andar↔telhado)?
+#[must_use]
+pub fn is_stair_b(x: u32, y: u32) -> bool {
+    x == STAIR_X2 && (HOUSE_Y0 + 4..=HOUSE_Y0 + 6).contains(&y)
+}
+
+fn build_house_floors(map: &mut Walkmap) {
+    if HOUSE_X1 >= map.width() || HOUSE_Y1 >= map.height() {
+        return;
+    }
+    for x in HOUSE_X0..=HOUSE_X1 {
+        for y in HOUSE_Y0..=HOUSE_Y1 {
+            map.add_surface(x, y, ROOF_LEVEL); // telhado caminhável sobre tudo
+            let interior = x > HOUSE_X0 && x < HOUSE_X1 && y > HOUSE_Y0 && y < HOUSE_Y1;
+            if interior {
+                map.add_surface(x, y, FLOOR_LEVEL); // piso do 2º andar sobre o interior
+            }
+        }
+    }
+    // Escada A (térreo 0 → 2º andar 3): superfícies 1,2 (o 3 já é o 2º andar na célula topo).
+    map.add_surface(STAIR_X, HOUSE_Y1 - 2, 1);
+    map.add_surface(STAIR_X, HOUSE_Y1 - 3, 2);
+    // Escada B (2º andar 3 → telhado 6): superfícies 4,5 (o 6 já é o telhado na célula topo).
+    map.add_surface(STAIR_X2, HOUSE_Y0 + 4, 4);
+    map.add_surface(STAIR_X2, HOUSE_Y0 + 5, 5);
+}
+
+/// Platô (altura 2) com uma RAMPA (altura 1) numa borda — a rampa liga o chão (0) ao
+/// platô (2) em degraus de 1 (caminhável); as outras bordas são penhasco 0→2 (degrau 2,
+/// bloqueado). Exercita a elevação real (D1.1/D2.3): só sobe pela rampa.
+fn build_plateau(map: &mut Walkmap) {
+    const X0: u32 = 38;
+    const X1: u32 = 46;
+    const Y0: u32 = 22;
+    const Y1: u32 = 30;
+    if X1 >= map.width() || Y1 + 1 >= map.height() {
+        return;
+    }
+    for x in X0..=X1 {
+        for y in Y0..=Y1 {
+            if let Some(mut cell) = map.get(x, y) {
+                cell.height = 2;
+                map.set(x, y, cell);
+            }
+        }
+    }
+    // Rampa (altura 1) na borda sul (y = Y1+1): chão(0) → rampa(1) → platô(2).
+    let ramp_y = Y1 + 1;
+    for x in X0..=X1 {
+        if let Some(mut cell) = map.get(x, ramp_y) {
+            cell.height = 1;
+            map.set(x, ramp_y, cell);
+        }
+    }
 }
 
 /// Footprint da casa, em tiles: retângulo `(X0,Y0)`–`(X1,Y1)`; porta na parede de cima.

@@ -3,8 +3,18 @@
 //! cliente: no Passo 2 o cliente só escreve [`MoveIntent`]; no Passo 4 o servidor vira
 //! o dono e valida. Sem rede, sem render.
 
-use crate::components::{MoveIntent, Position, Velocity};
+use crate::components::{Facing, MoveIntent, Position, Velocity};
 use bevy::prelude::*;
+
+/// Atualiza a direção para onde a entidade "olha" com a direção atual de movimento (quando
+/// se move). Fica estável quando para (guarda a última direção) — base do pulo pra frente.
+pub fn update_facing(mut query: Query<(&Velocity, &mut Facing)>) {
+    for (velocity, mut facing) in &mut query {
+        if velocity.0.length_squared() > 1e-4 {
+            facing.0 = velocity.0.normalize();
+        }
+    }
+}
 
 /// Velocidade de caminhada, em **tiles/segundo** (as posições estão em unidades de tile).
 pub const WALK_SPEED: f32 = 4.0;
@@ -34,13 +44,14 @@ pub fn velocity_from_intent(mut query: Query<(&MoveIntent, &mut Velocity)>) {
 pub fn integrate_positions(
     time: Res<Time<Fixed>>,
     map: Option<Res<crate::walkmap::Walkmap>>,
-    mut query: Query<(&Velocity, &mut Position)>,
+    mut query: Query<(&Velocity, &mut Position, Option<&crate::components::Elevation>)>,
 ) {
     let dt = time.delta_secs();
-    for (velocity, mut position) in &mut query {
+    for (velocity, mut position, elevation) in &mut query {
         let desired = step_position(position.0, velocity.0, dt);
+        let elev = elevation.map_or(0, |e| e.0);
         position.0 = match map.as_deref() {
-            Some(map) => crate::walkmap::resolve_move(map, position.0, desired),
+            Some(map) => crate::walkmap::resolve_move(map, position.0, desired, elev),
             None => desired,
         };
     }

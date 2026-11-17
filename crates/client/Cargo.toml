@@ -13,9 +13,6 @@ publish = false
 # docs/debito-tecnico.md DT-03).
 [dependencies]
 shared = { path = "../shared" }
-# Tilemap 2.5D (RFC 0002). 0.20.0 depende de bevy com default-features=false (só render),
-# então NÃO reativa audio/gamepad (preserva DT-03). Verificado no spike.
-bevy_ecs_tilemap = "0.20"
 # Rede (P4): cliente replicon + transporte renet2/UDP.
 bevy_replicon = { workspace = true }
 bevy_replicon_renet2 = { workspace = true }
@@ -25,6 +22,11 @@ bevy = { workspace = true, features = [
     "multi_threaded",
     "default_app",     # async_executor, bevy_asset, bevy_log, bevy_state, reflect_auto_register
     "2d_bevy_render",  # bevy_render + core_pipeline + sprite_render + 2d_api (bevy_sprite)
+    # Render 3D COMPLETO (Camera3d/Mesh3d/StandardMaterial + core_pipeline, bevy_light,
+    # anti_alias, post_process, LUTs e os SHADERS do pbr). `bevy_pbr` sozinho NÃO traz os
+    # companheiros de shader -> a pipeline trava sem carregar. NÃO puxa default_platform
+    # (gilrs/audio continuam fora -> DT-03 preservado).
+    "3d_bevy_render",
     "ui_bevy_render",  # UI (botoes/texto) SEM default_platform -> nao puxa gilrs/audio (DT-03 ok)
     "ui_picking",      # clique nativo em botoes de UI (tambem nao puxa default_platform)
     "bevy_winit",

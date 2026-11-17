@@ -18,9 +18,9 @@ use bevy_replicon_renet2::{
     RenetChannelsExt, RepliconRenetPlugins,
 };
 use shared::{
-    build_walkmap, cell_center, find_path, AssignedPlayer, InMemoryRepository, MoveIntent,
-    MoveOrder, MoveTo, Npc, Patrol, Player, PlayerId, Position, ProtocolPlugin, SharedPlugin,
-    Velocity, Walkmap, WorldRepository, ZoneSeed,
+    build_walkmap, cell_center, find_path, AssignedPlayer, Elevation, Facing, Hop,
+    InMemoryRepository, Jump, MoveIntent, MoveOrder, MoveTo, Npc, Patrol, Player, PlayerId,
+    Position, ProtocolPlugin, SharedPlugin, Velocity, Walkmap, WorldRepository, ZoneSeed,
 };
 use std::net::{Ipv4Addr, SocketAddr, UdpSocket};
 use std::time::{Duration, SystemTime};
@@ -54,7 +54,9 @@ fn main() -> anyhow::Result<()> {
     .add_observer(on_client_connected)
     .add_observer(on_client_authorized)
     .add_observer(on_client_disconnected)
-    .add_observer(on_move_to);
+    .add_observer(on_move_to)
+    .add_observer(on_jump)
+    .add_observer(on_hop);
 
     // Carrega a receita da zona via repository (D4.3), backend trocável: Postgres se
     // `DATABASE_URL` estiver setado, senão em memória.
@@ -136,6 +138,8 @@ fn on_client_connected(trigger: On<Add<ConnectedClient>>, mut commands: Commands
     commands.spawn((
         Player(player_id),
         Position(spawn),
+        Elevation(0),
+        Facing::default(),
         Velocity(Vec2::ZERO),
         MoveIntent(Vec2::ZERO),
         Owner(ClientId::Client(client_entity)),
@@ -177,7 +181,7 @@ fn on_client_disconnected(
 fn on_move_to(
     trigger: On<FromClient<MoveTo>>,
     map: Option<Res<Walkmap>>,
-    players: Query<(Entity, &Owner, &Position)>,
+    players: Query<(Entity, &Owner, &Position, &Elevation)>,
     mut commands: Commands,
 ) {
     let Some(map) = map.as_deref() else {
@@ -185,13 +189,73 @@ fn on_move_to(
     };
     // O tile clicado JÁ é a célula alvo (grade de colisão = grade de render).
     let target = (trigger.message.tx, trigger.message.ty);
-    for (entity, owner, position) in &players {
+    for (entity, owner, position, elevation) in &players {
         if owner.0 == trigger.client_id {
             if let Some(start) = map.cell_at_world(position.0) {
-                if let Some(path) = find_path(map, start, target) {
+                // A* ciente de nível: parte da superfície atual e mira a elevação pedida
+                // (te) na célula destino (clicar escada → sobe pro telhado).
+                if let Some(path) = find_path(map, start, elevation.0, target, trigger.message.te) {
                     commands.entity(entity).insert(MoveOrder::new(path));
                 }
             }
+        }
+    }
+}
+
+/// Enter (cliente) → o player CAI um nível: baixa a `Elevation` para a superfície logo
+/// abaixo na célula atual (se houver). Cancela a ordem de movimento pra não ser sobrescrito.
+fn on_jump(
+    trigger: On<FromClient<Jump>>,
+    map: Option<Res<Walkmap>>,
+    mut players: Query<(Entity, &Owner, &Position, &mut Elevation)>,
+    mut commands: Commands,
+) {
+    let Some(map) = map.as_deref() else {
+        return;
+    };
+    for (entity, owner, position, mut elevation) in &mut players {
+        if owner.0 == trigger.client_id {
+            if let Some((cx, cy)) = map.cell_at_world(position.0) {
+                if let Some(below) = map.surface_below(cx, cy, elevation.0) {
+                    elevation.0 = below;
+                    commands.entity(entity).remove::<MoveOrder>();
+                }
+            }
+        }
+    }
+}
+
+/// Espaço (cliente) → PULO PRA FRENTE: salta o player ~1 tile na direção que ele olha e o
+/// faz POUSAR na superfície de lá (cai de borda, se houver). Desce qualquer altura, sobe só
+/// um degrau (STEP_MAX). Cancela a ordem de movimento.
+fn on_hop(
+    trigger: On<FromClient<Hop>>,
+    map: Option<Res<Walkmap>>,
+    mut players: Query<(Entity, &Owner, &mut Position, &mut Elevation, &Facing)>,
+    mut commands: Commands,
+) {
+    let Some(map) = map.as_deref() else {
+        return;
+    };
+    for (entity, owner, mut position, mut elevation, facing) in &mut players {
+        if owner.0 != trigger.client_id {
+            continue;
+        }
+        let target = position.0 + facing.0.normalize_or_zero();
+        let Some((tx, ty)) = map.cell_at_world(target) else {
+            continue;
+        };
+        // Superfície de pouso: a mais alta que dá pra alcançar (cai de qualquer altura, sobe
+        // no máximo STEP_MAX).
+        let land = map
+            .surfaces(tx, ty)
+            .into_iter()
+            .filter(|&s| s <= elevation.0 + shared::walkmap::STEP_MAX)
+            .max();
+        if let Some(surf) = land {
+            position.0 = cell_center((tx, ty));
+            elevation.0 = surf;
+            commands.entity(entity).remove::<MoveOrder>();
         }
     }
 }

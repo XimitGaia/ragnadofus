@@ -11,9 +11,25 @@ use serde::{Deserialize, Serialize};
 #[derive(Component, Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Position(#[serde(with = "crate::serde_helpers::vec2")] pub Vec2);
 
+/// Nível/altura de superfície em que a entidade está (multi-nível 2.5D): 0 = térreo, >0 =
+/// 2º andar/telhado. Replicado para o cliente erguer o sprite no piso certo.
+#[derive(Component, Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct Elevation(pub i32);
+
 /// Velocidade atual da entidade.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Default)]
 pub struct Velocity(pub Vec2);
+
+/// Direção para onde a entidade "olha" (última direção de movimento). Usada pelo pulo pra
+/// frente (server-only; não replicado).
+#[derive(Component, Debug, Clone, Copy, PartialEq)]
+pub struct Facing(pub Vec2);
+
+impl Default for Facing {
+    fn default() -> Self {
+        Self(Vec2::new(0.0, 1.0))
+    }
+}
 
 /// Marker + id estável de um jogador. Replicado (P4) para o cliente saber que a
 /// entidade é um jogador.

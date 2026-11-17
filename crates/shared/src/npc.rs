@@ -10,26 +10,32 @@ use bevy::prelude::*;
 /// Distância (px) para considerar que chegou ao waypoint atual.
 const WAYPOINT_EPS: f32 = 0.15;
 
+/// Quanto tempo (s) o NPC fica PARADO ao chegar em cada objetivo antes de seguir.
+const PAUSE_SECS: f32 = 2.0;
+
 /// Estado de patrulha do NPC: percorre `goals` em ordem cíclica, recalculando o path A*
-/// a cada troca de objetivo.
+/// a cada troca de objetivo. Fica um tempo parado (`pause`) ao chegar em cada objetivo.
 #[derive(Component, Debug, Clone)]
 pub struct Patrol {
     goals: Vec<(u32, u32)>,
     goal_idx: usize,
-    path: Vec<(u32, u32)>,
+    path: Vec<(u32, u32, i32)>,
     step: usize,
+    /// Segundos restantes de idle (parado) no objetivo atual.
+    pause: f32,
 }
 
 impl Patrol {
     /// Cria uma patrulha cíclica pelos objetivos (sub-células) dados.
     #[must_use]
     pub fn new(goals: Vec<(u32, u32)>) -> Self {
-        Self { goals, goal_idx: 0, path: Vec::new(), step: 0 }
+        Self { goals, goal_idx: 0, path: Vec::new(), step: 0, pause: 0.0 }
     }
 }
 
 /// Planeja (A*) e segue o caminho, setando `MoveIntent` rumo ao próximo waypoint.
 pub fn npc_ai(
+    time: Res<Time>,
     map: Option<Res<Walkmap>>,
     mut npcs: Query<(&Position, &mut MoveIntent, &mut Patrol), With<Npc>>,
 ) {
@@ -42,6 +48,13 @@ pub fn npc_ai(
             continue;
         }
 
+        // Idle: fica parado um tempo ao chegar no objetivo antes de replanejar.
+        if patrol.pause > 0.0 {
+            patrol.pause -= time.delta_secs();
+            intent.0 = Vec2::ZERO;
+            continue;
+        }
+
         // (Re)planeja quando não há waypoints pendentes.
         if patrol.step >= patrol.path.len() {
             let Some(start) = map.cell_at_world(position.0) else {
@@ -49,27 +62,28 @@ pub fn npc_ai(
                 continue;
             };
             let goal = patrol.goals[patrol.goal_idx];
-            match find_path(map, start, goal) {
+            match find_path(map, start, 0, goal, 0) {
                 Some(path) if path.len() > 1 => {
                     patrol.path = path;
                     patrol.step = 1; // índice 0 é a célula atual
                 }
                 _ => {
-                    // Chegou ao goal (ou sem caminho): vai para o próximo.
+                    // Chegou ao goal (ou sem caminho): fica um tempo parado e vai pro próximo.
                     patrol.goal_idx = (patrol.goal_idx + 1) % patrol.goals.len();
                     patrol.path.clear();
                     patrol.step = 0;
+                    patrol.pause = PAUSE_SECS;
                     intent.0 = Vec2::ZERO;
                     continue;
                 }
             }
         }
 
-        let Some(&waypoint) = patrol.path.get(patrol.step) else {
+        let Some(&(wx, wy, _)) = patrol.path.get(patrol.step) else {
             intent.0 = Vec2::ZERO;
             continue;
         };
-        let to_waypoint = cell_center(waypoint) - position.0;
+        let to_waypoint = cell_center((wx, wy)) - position.0;
         if to_waypoint.length() <= WAYPOINT_EPS {
             patrol.step += 1;
             intent.0 = Vec2::ZERO;
