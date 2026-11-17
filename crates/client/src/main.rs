@@ -247,13 +247,46 @@ struct WizardSprites {
     frames: [[Handle<Image>; 8]; 8], // [linha=direção][coluna=frame]
 }
 
-/// Marca o NPC que usa o sheet direcional do mago.
-#[derive(Component)]
-struct WizardNpc;
-
 /// Linha do sheet do mago por índice dir8 (0=S,1=SE,2=E,3=NE,4=N,5=NW,6=W,7=SW).
 /// Sheet observado: r0=S, r1=SW, r2=W, r3=NW, r4=N, r5=NE, r6=E, r7=SE → row = (8-dir8)%8.
 const WIZ_ROW: [usize; 8] = [0, 7, 6, 5, 4, 3, 2, 1];
+
+/// Frames de UMA direção: pose idle + ciclo de walk + se deve espelhar em X (flip).
+struct DirFrames {
+    idle: Handle<Image>,
+    walk: Vec<Handle<Image>>,
+    mirror: bool,
+}
+
+/// Tabela de sprites direcionais **já resolvida** (8 direções), montada na hidratação a
+/// partir do kit do personagem. É o DADO que torna `animate_directional` ÚNICO: a diferença
+/// entre personagens (cavaleiro 5-base+espelho vs mago 8 nativas) vive só aqui, não em código.
+#[derive(Component)]
+struct DirectionalSprite {
+    dirs: [DirFrames; 8], // índice = dir8 (0=S .. 7=SW)
+    frame_time: f32,      // segundos por frame de walk
+    breathe: bool,        // respiração (idle) quando parado
+}
+
+impl DirectionalSprite {
+    /// Cavaleiro: 5 direções-base geradas (S,SE,E,NE,N) + W/SW/NW como espelho.
+    fn knight(k: &KnightSprites) -> Self {
+        let dirs = core::array::from_fn(|d8| {
+            let (base, mirror) = dir8_to_base(d8);
+            DirFrames { idle: k.idle[base].clone(), walk: k.walk[base].to_vec(), mirror }
+        });
+        Self { dirs, frame_time: 0.14, breathe: true }
+    }
+
+    /// Mago: 8 direções NATIVAS do sheet (linha por `WIZ_ROW`), sem espelho.
+    fn wizard(w: &WizardSprites) -> Self {
+        let dirs = core::array::from_fn(|d8| {
+            let row = WIZ_ROW[d8];
+            DirFrames { idle: w.frames[row][0].clone(), walk: w.frames[row].to_vec(), mirror: false }
+        });
+        Self { dirs, frame_time: 0.12, breathe: true }
+    }
+}
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -310,8 +343,7 @@ fn main() -> anyhow::Result<()> {
             sync_transforms,
             hop_arc,
             face_trees,
-            animate_knight,
-            animate_wizard,
+            animate_directional,
             auto_rotate_camera,
             camera_orbit,
             apply_vision,
@@ -403,28 +435,32 @@ fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
     commands.insert_resource(WizardSprites { frames });
 }
 
-/// Animação direcional do cavaleiro em 8 direções (relativas à câmera):
-/// - escolhe a direção pela velocidade (variação da `Position`) projetada no yaw da câmera;
-/// - andando: cicla os 4 frames de walk da direção; parado: pose idle + respiração/bob;
-/// - W/SW/NW = espelho (flip X via `scale.x` negativo) de E/SE/NE.
+/// Animação direcional ÚNICA para qualquer personagem com `DirectionalSprite` (cavaleiro,
+/// mago, futuros). Em 8 direções relativas à câmera:
+/// - escolhe a direção pela velocidade (variação da `Position`) projetada no yaw da câmera,
+///   com histerese (`MOVE_HOLD`) pra o walk ciclar suave entre updates de rede;
+/// - andando: cicla os frames de walk da direção; parado: pose idle (+ respiração, se `breathe`);
+/// - espelho em X conforme o `DirFrames.mirror` da direção.
 ///
-/// Roda DEPOIS de `sync_transforms`/`hop_arc` (compõe por cima da pose base).
-fn animate_knight(
+/// É o "um lugar só" pra ajustar o andar — a diferença entre personagens é DADO
+/// (`DirectionalSprite`), não código. Roda DEPOIS de `sync_transforms`/`hop_arc`.
+fn animate_directional(
     time: Res<Time>,
     orbit: Res<CamOrbit>,
-    sprites: Res<KnightSprites>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut actors: Query<(
         Entity,
         &Position,
         &mut DirAnim,
+        &DirectionalSprite,
         &MeshMaterial3d<StandardMaterial>,
         Option<&SpriteHalf>,
         &mut Transform,
-    ), With<Player>>,
+    )>,
 ) {
     let t = time.elapsed_secs();
-    for (e, pos, mut anim, material, sprite_half, mut transform) in &mut actors {
+    for (e, pos, mut anim, sprite, material, sprite_half, mut transform) in &mut actors {
+        // --- detecção de movimento com histerese (único lugar) ---
         let v = pos.0 - anim.last;
         anim.last = pos.0;
         if anim.started && v.length() > 0.002 {
@@ -437,21 +473,20 @@ fn animate_knight(
         }
         let moving = anim.move_cd > 0.0;
 
-        let (base, mirror) = dir8_to_base(anim.dir8);
-        let mirror_sign = if mirror { -1.0 } else { 1.0 };
+        let df = &sprite.dirs[anim.dir8];
 
-        // textura: walk (ciclo) ou idle.
-        let want = if moving {
+        // --- textura: walk (ciclo) ou idle ---
+        let want = if moving && !df.walk.is_empty() {
             anim.timer += time.delta_secs();
-            if anim.timer >= 0.14 {
+            if anim.timer >= sprite.frame_time {
                 anim.timer = 0.0;
-                anim.frame = (anim.frame + 1) % 4;
+                anim.frame = (anim.frame + 1) % df.walk.len();
             }
-            &sprites.walk[base][anim.frame]
+            df.walk.get(anim.frame).unwrap_or(&df.idle)
         } else {
             anim.timer = 0.0;
             anim.frame = 0;
-            &sprites.idle[base]
+            &df.idle
         };
         if let Some(mut mat) = materials.get_mut(&material.0) {
             if mat.base_color_texture.as_ref() != Some(want) {
@@ -459,8 +494,9 @@ fn animate_knight(
             }
         }
 
-        // pose: andando = sprite "firme" (só o espelho); parado = respiração + bob.
-        if moving {
+        // --- pose: espelho (sempre) + respiração/bob (só parado, se breathe) ---
+        let mirror_sign = if df.mirror { -1.0 } else { 1.0 };
+        if moving || !sprite.breathe {
             transform.scale = Vec3::new(mirror_sign, 1.0, 1.0);
         } else {
             let half = sprite_half.map(|h| h.0).unwrap_or(BILLBOARD_HALF);
@@ -713,6 +749,7 @@ fn hydrate_players(
             Billboard,
             SpriteHalf(HERO_HALF),
             DirAnim { last: Vec2::ZERO, started: false, dir8: 0, frame: 0, timer: 0.0, move_cd: 0.0 },
+            DirectionalSprite::knight(&sprites),
         ));
     }
 }
@@ -733,75 +770,11 @@ fn hydrate_npcs(
             Billboard,
             SpriteHalf(WIZ_HALF),
             DirAnim { last: Vec2::ZERO, started: false, dir8: 0, frame: 0, timer: 0.0, move_cd: 0.0 },
-            WizardNpc,
+            DirectionalSprite::wizard(&sprites),
         ));
     }
 }
 
-/// Animação direcional do NPC mago: 8 direções NATIVAS (linhas do sheet) × 8 frames de walk
-/// (colunas). Escolhe a linha pela velocidade projetada no yaw (`WIZ_ROW`); parado = frame 0
-/// + respiração leve. Roda DEPOIS de `sync_transforms`.
-fn animate_wizard(
-    time: Res<Time>,
-    orbit: Res<CamOrbit>,
-    sprites: Res<WizardSprites>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut actors: Query<
-        (
-            &Position,
-            &mut DirAnim,
-            &MeshMaterial3d<StandardMaterial>,
-            Option<&SpriteHalf>,
-            &mut Transform,
-        ),
-        With<WizardNpc>,
-    >,
-) {
-    let t = time.elapsed_secs();
-    for (pos, mut anim, material, sprite_half, mut transform) in &mut actors {
-        let v = pos.0 - anim.last;
-        anim.last = pos.0;
-        if anim.started && v.length() > 0.002 {
-            anim.dir8 = dir8_from_velocity(v, orbit.yaw);
-            anim.move_cd = MOVE_HOLD; // segura "andando" entre updates de rede
-        }
-        anim.started = true;
-        if anim.move_cd > 0.0 {
-            anim.move_cd -= time.delta_secs();
-        }
-        let moving = anim.move_cd > 0.0;
-
-        let row = WIZ_ROW[anim.dir8];
-        let want = if moving {
-            anim.timer += time.delta_secs();
-            if anim.timer >= 0.12 {
-                anim.timer = 0.0;
-                anim.frame = (anim.frame + 1) % 8;
-            }
-            &sprites.frames[row][anim.frame]
-        } else {
-            anim.timer = 0.0;
-            anim.frame = 0;
-            &sprites.frames[row][0]
-        };
-        if let Some(mut mat) = materials.get_mut(&material.0) {
-            if mat.base_color_texture.as_ref() != Some(want) {
-                mat.base_color_texture = Some(want.clone());
-            }
-        }
-
-        if moving {
-            transform.scale = Vec3::ONE;
-        } else {
-            let half = sprite_half.map(|h| h.0).unwrap_or(BILLBOARD_HALF);
-            let breath = (t * 2.0).sin();
-            let sy = 1.0 + 0.02 * breath;
-            let sx = 1.0 - 0.012 * breath;
-            transform.scale = Vec3::new(sx, sy, 1.0);
-            transform.translation.y += half * (sy - 1.0);
-        }
-    }
-}
 
 /// Material de billboard: sprite com transparência (máscara), cor chapada (unlit), visível
 /// dos dois lados. `tint` multiplica a textura (branco = textura original).
