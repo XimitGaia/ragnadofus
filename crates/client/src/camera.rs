@@ -9,7 +9,7 @@ use shared::{Player, Position};
 
 use crate::common::MyPlayer;
 use crate::vision::in_house;
-use crate::ClientSet;
+use crate::app::ClientSet;
 
 /// Registra a câmera orbital e seus sistemas nos sets `Input`/`Camera`.
 pub(crate) fn plugin(app: &mut App) {

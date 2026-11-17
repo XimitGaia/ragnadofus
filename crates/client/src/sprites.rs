@@ -6,7 +6,7 @@ use shared::{Elevation, Npc, Player, Position, Walkmap};
 
 use crate::camera::CamOrbit;
 use crate::common::{Billboard, SpriteHalf, BILLBOARD_HALF, LEVEL_HEIGHT};
-use crate::ClientSet;
+use crate::app::ClientSet;
 
 /// Lado do sprite do HERÓI no mundo. Os sprites do cavaleiro são 128×128 quadrados e
 /// foot-anchored → quadrado (sem distorção) e troca de direção/frame sem salto.

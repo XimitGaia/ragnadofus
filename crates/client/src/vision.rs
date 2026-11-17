@@ -7,7 +7,7 @@ use shared::world::{HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1, ROOF_LEVEL};
 use shared::{Elevation, Npc, Player, Position, Walkmap};
 
 use crate::common::{Cell, DimPair, HouseWall, MyPlayer, Platform};
-use crate::ClientSet;
+use crate::app::ClientSet;
 
 /// Registra o estado de visão e o sistema que o aplica (no set `Vision`).
 pub(crate) fn plugin(app: &mut App) {
