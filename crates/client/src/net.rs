@@ -12,7 +12,7 @@ use bevy_replicon_renet2::{
 };
 use shared::AssignedPlayer;
 
-use crate::MyPlayer;
+use crate::common::MyPlayer;
 
 const DEFAULT_SERVER: &str = "127.0.0.1:5000";
 

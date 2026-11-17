@@ -5,7 +5,8 @@ use bevy_replicon::prelude::*;
 use shared::world::{is_stair_a, is_stair_b, FLOOR_LEVEL, ROOF_LEVEL};
 use shared::{Elevation, Hop, Jump, MoveTo, Player};
 
-use crate::{ClientSet, MyPlayer, LEVEL_HEIGHT};
+use crate::common::{MyPlayer, LEVEL_HEIGHT};
+use crate::ClientSet;
 
 /// Registra os sistemas de input nos sets de ordenação (`Input`/`Anim`).
 pub(crate) fn plugin(app: &mut App) {

@@ -7,8 +7,9 @@ use bevy::prelude::*;
 use shared::world::{HOUSE_X0, HOUSE_X1, HOUSE_Y0, HOUSE_Y1};
 use shared::{Player, Position};
 
+use crate::common::MyPlayer;
 use crate::vision::in_house;
-use crate::{ClientSet, MyPlayer};
+use crate::ClientSet;
 
 /// Registra a câmera orbital e seus sistemas nos sets `Input`/`Camera`.
 pub(crate) fn plugin(app: &mut App) {

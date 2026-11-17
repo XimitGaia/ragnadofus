@@ -20,14 +20,20 @@ use shared::world::{
     STAIR_X, STAIR_X2,
 };
 use shared::{
-    build_walkmap, Elevation, Npc, Player, PlayerId, Position, ProtocolPlugin, Walkmap, ZoneSeed,
+    build_walkmap, Elevation, Npc, Player, Position, ProtocolPlugin, Walkmap, ZoneSeed,
 };
 
 mod camera;
+mod common;
 mod input;
 mod net;
 mod ui;
 mod vision;
+
+use common::{
+    Billboard, Cell, DimPair, HouseWall, Platform, SpriteHalf, BILLBOARD_HALF, BILLBOARD_W,
+    LEVEL_HEIGHT,
+};
 
 /// Ordem determinística dos sistemas de `Update` do cliente — substitui o `.chain()` único
 /// de antes. A sequência preserva EXATAMENTE as dependências originais: `Spawn` antes de
@@ -44,16 +50,10 @@ pub(crate) enum ClientSet {
     Vision,
 }
 
-/// Altura (em unidades de mundo = tiles) de 1 nível de elevação do terreno.
-const LEVEL_HEIGHT: f32 = 1.0;
 /// Altura da parede da casa, em tiles — 2 andares (~3 por andar).
 const WALL_LEVELS: f32 = 6.0;
 /// Altura de 1 andar (onde fica a faixa divisória entre os pisos).
 const FLOOR_HEIGHT: f32 = 3.0;
-/// Meia-altura do billboard do personagem.
-const BILLBOARD_HALF: f32 = 0.7;
-/// Largura do billboard (sprite do herói 64×64 quadrado → largura = altura).
-const BILLBOARD_W: f32 = 1.4;
 /// Lado do sprite do HERÓI no mundo. Os sprites do cavaleiro são 128×128 quadrados e
 /// foot-anchored → quadrado (sem distorção) e troca de direção/frame sem salto.
 const HERO_H: f32 = 2.2;
@@ -68,49 +68,9 @@ const WIZ_W: f32 = WIZ_H * (64.0 / 96.0);
 const WIZ_LIFT: f32 = 0.1;
 const WIZ_HALF: f32 = WIZ_H / 2.0 + WIZ_LIFT;
 
-/// Player controlado por este cliente (recebido do servidor via `AssignedPlayer`).
-#[derive(Resource, Default)]
-struct MyPlayer(Option<PlayerId>);
-
 /// Evita redesenhar a zona se a `ZoneSeed` chegar mais de uma vez.
 #[derive(Resource, Default)]
 struct ZoneBuilt(bool);
-
-/// Sprite que sempre encara a câmera (personagens/NPCs).
-#[derive(Component)]
-struct Billboard;
-
-/// Meia-altura do sprite deste billboard (pivô nos pés). Permite sprites de tamanhos
-/// diferentes (herói retrato vs NPC quadrado) sem hardcode em `sync_transforms`.
-#[derive(Component)]
-struct SpriteHalf(f32);
-
-/// Célula (tile) de uma peça de cenário — usada depois pela visão/cutaway (M2).
-#[derive(Component, Clone, Copy)]
-#[allow(dead_code)]
-struct Cell {
-    x: u32,
-    y: u32,
-}
-
-/// Piso suspenso da casa (2º andar ou telhado), no `level` (altura) dado. Some (vira
-/// "teto") quando o próprio player está dentro e ABAIXO dele; aparece no nível dele ou acima.
-#[derive(Component)]
-struct Platform {
-    level: i32,
-}
-
-/// Parede da CASA (box 3D). Usada pelo cutaway: some a do lado da câmera quando se entra.
-#[derive(Component)]
-struct HouseWall;
-
-/// Par de materiais (claro/escuro) de uma peça de cenário. O FOV troca entre os dois para
-/// ESCURECER o que o boneco não enxerga (em vez de esconder).
-#[derive(Component)]
-struct DimPair {
-    bright: Handle<StandardMaterial>,
-    dim: Handle<StandardMaterial>,
-}
 
 /// Escurece uma cor (versão "na penumbra" — fora do campo de visão).
 fn dim_color(c: Color) -> Color {
