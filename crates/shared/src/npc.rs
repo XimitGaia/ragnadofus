@@ -10,26 +10,32 @@ use bevy::prelude::*;
 /// Distância (px) para considerar que chegou ao waypoint atual.
 const WAYPOINT_EPS: f32 = 0.15;
 
+/// Quanto tempo (s) o NPC fica PARADO ao chegar em cada objetivo antes de seguir.
+const PAUSE_SECS: f32 = 2.0;
+
 /// Estado de patrulha do NPC: percorre `goals` em ordem cíclica, recalculando o path A*
-/// a cada troca de objetivo.
+/// a cada troca de objetivo. Fica um tempo parado (`pause`) ao chegar em cada objetivo.
 #[derive(Component, Debug, Clone)]
 pub struct Patrol {
     goals: Vec<(u32, u32)>,
     goal_idx: usize,
     path: Vec<(u32, u32, i32)>,
     step: usize,
+    /// Segundos restantes de idle (parado) no objetivo atual.
+    pause: f32,
 }
 
 impl Patrol {
     /// Cria uma patrulha cíclica pelos objetivos (sub-células) dados.
     #[must_use]
     pub fn new(goals: Vec<(u32, u32)>) -> Self {
-        Self { goals, goal_idx: 0, path: Vec::new(), step: 0 }
+        Self { goals, goal_idx: 0, path: Vec::new(), step: 0, pause: 0.0 }
     }
 }
 
 /// Planeja (A*) e segue o caminho, setando `MoveIntent` rumo ao próximo waypoint.
 pub fn npc_ai(
+    time: Res<Time>,
     map: Option<Res<Walkmap>>,
     mut npcs: Query<(&Position, &mut MoveIntent, &mut Patrol), With<Npc>>,
 ) {
@@ -38,6 +44,13 @@ pub fn npc_ai(
     };
     for (position, mut intent, mut patrol) in &mut npcs {
         if patrol.goals.is_empty() {
+            intent.0 = Vec2::ZERO;
+            continue;
+        }
+
+        // Idle: fica parado um tempo ao chegar no objetivo antes de replanejar.
+        if patrol.pause > 0.0 {
+            patrol.pause -= time.delta_secs();
             intent.0 = Vec2::ZERO;
             continue;
         }
@@ -55,10 +68,11 @@ pub fn npc_ai(
                     patrol.step = 1; // índice 0 é a célula atual
                 }
                 _ => {
-                    // Chegou ao goal (ou sem caminho): vai para o próximo.
+                    // Chegou ao goal (ou sem caminho): fica um tempo parado e vai pro próximo.
                     patrol.goal_idx = (patrol.goal_idx + 1) % patrol.goals.len();
                     patrol.path.clear();
                     patrol.step = 0;
+                    patrol.pause = PAUSE_SECS;
                     intent.0 = Vec2::ZERO;
                     continue;
                 }

@@ -42,10 +42,23 @@ const LEVEL_HEIGHT: f32 = 1.0;
 const WALL_LEVELS: f32 = 6.0;
 /// Altura de 1 andar (onde fica a faixa divisória entre os pisos).
 const FLOOR_HEIGHT: f32 = 3.0;
-/// Meia-altura do billboard do personagem (chibi, baixinho estilo RO).
-const BILLBOARD_HALF: f32 = 0.62;
-/// Largura do billboard (proporção do sprite chibi 32x40 = 0,8).
-const BILLBOARD_W: f32 = 0.99;
+/// Meia-altura do billboard do personagem.
+const BILLBOARD_HALF: f32 = 0.7;
+/// Largura do billboard (sprite do herói 64×64 quadrado → largura = altura).
+const BILLBOARD_W: f32 = 1.4;
+/// Lado do sprite do HERÓI no mundo. Os sprites do cavaleiro são 128×128 quadrados e
+/// foot-anchored → quadrado (sem distorção) e troca de direção/frame sem salto.
+const HERO_H: f32 = 2.2;
+const HERO_W: f32 = 2.2;
+/// Meia-altura do herói (pivô nos pés = base + HERO_HALF).
+const HERO_HALF: f32 = HERO_H / 2.0;
+/// Billboard do NPC mago (células 64×96 do sheet → retrato, sem distorção).
+const WIZ_H: f32 = 2.1;
+const WIZ_W: f32 = WIZ_H * (64.0 / 96.0);
+/// Meia-altura + um leve "lift" pra erguer o mago do chão (pedido: subir um pouco).
+/// Células originais já têm uma folga de pé, então o lift aqui é pequeno.
+const WIZ_LIFT: f32 = 0.1;
+const WIZ_HALF: f32 = WIZ_H / 2.0 + WIZ_LIFT;
 
 /// Player controlado por este cliente (recebido do servidor via `AssignedPlayer`).
 #[derive(Resource, Default)]
@@ -82,6 +95,11 @@ const CAM_DIST: f32 = 90.0;
 /// Sprite que sempre encara a câmera (personagens/NPCs).
 #[derive(Component)]
 struct Billboard;
+
+/// Meia-altura do sprite deste billboard (pivô nos pés). Permite sprites de tamanhos
+/// diferentes (herói retrato vs NPC quadrado) sem hardcode em `sync_transforms`.
+#[derive(Component)]
+struct SpriteHalf(f32);
 
 /// Célula (tile) de uma peça de cenário — usada depois pela visão/cutaway (M2).
 #[derive(Component, Clone, Copy)]
@@ -174,18 +192,68 @@ fn compute_fov(map: &Walkmap, origin: (i32, i32), radius: i32) -> HashSet<(u32, 
     vis
 }
 
-/// Frames da animação de caminhada do herói (sprites autorais `hero_0..3.png`).
+/// Sprites direcionais do cavaleiro: 5 direções-base geradas (S,SE,E,NE,N); W/SW/NW são
+/// espelho (flip X) dessas. Cada direção: 1 pose idle + 4 frames de walk. (128×128)
 #[derive(Resource)]
-struct HeroFrames(Vec<Handle<Image>>);
+struct KnightSprites {
+    idle: [Handle<Image>; 5],
+    walk: [[Handle<Image>; 4]; 5],
+}
 
-/// Estado da animação de andar de um personagem (troca o frame quando se move).
+/// Estado da animação direcional do cavaleiro. Mantém a última direção quando parado
+/// (não "vira pro sul" ao parar) e cicla os frames de walk ao mover.
 #[derive(Component)]
-struct WalkAnim {
-    frame: usize,
-    timer: f32,
+struct DirAnim {
     last: Vec2,
     started: bool,
+    /// 0=S 1=SE 2=E 3=NE 4=N 5=NW 6=W 7=SW (mantido ao parar).
+    dir8: usize,
+    frame: usize,
+    timer: f32,
+    /// Histerese de "andando" (s). A `Position` chega pela rede (~10-15Hz); sem isso o
+    /// sprite voltaria pro frame 0 nos frames (60Hz) entre updates. Segura o walk ativo.
+    move_cd: f32,
 }
+
+/// Quanto tempo (s) o estado "andando" é mantido após o último movimento recebido.
+const MOVE_HOLD: f32 = 0.25;
+
+/// Mapeia índice 8-direções → (direção-base 0..4 gerada, espelhar em X?).
+fn dir8_to_base(dir8: usize) -> (usize, bool) {
+    match dir8 {
+        0 => (0, false), // S
+        1 => (1, false), // SE
+        2 => (2, false), // E
+        3 => (3, false), // NE
+        4 => (4, false), // N
+        5 => (3, true),  // NW = espelho de NE
+        6 => (2, true),  // W  = espelho de E
+        _ => (1, true),  // SW = espelho de SE
+    }
+}
+
+/// Direção 8-vias da velocidade `v` (mundo XZ) RELATIVA à câmera (`yaw`): "sul" = indo em
+/// direção à câmera (aparece de frente). Base de tela: baixo=(sin,cos), direita=(cos,-sin).
+fn dir8_from_velocity(v: Vec2, yaw: f32) -> usize {
+    let (s, c) = (yaw.sin(), yaw.cos());
+    let south = v.x * s + v.y * c;
+    let east = v.x * c - v.y * s;
+    (east.atan2(south) / std::f32::consts::FRAC_PI_4).round() as i32 as usize & 7
+}
+
+/// Sprites do NPC mago: sheet 8 direções (linhas) × 8 frames (colunas), 64×96 nativo.
+#[derive(Resource)]
+struct WizardSprites {
+    frames: [[Handle<Image>; 8]; 8], // [linha=direção][coluna=frame]
+}
+
+/// Marca o NPC que usa o sheet direcional do mago.
+#[derive(Component)]
+struct WizardNpc;
+
+/// Linha do sheet do mago por índice dir8 (0=S,1=SE,2=E,3=NE,4=N,5=NW,6=W,7=SW).
+/// Sheet observado: r0=S, r1=SW, r2=W, r3=NW, r4=N, r5=NE, r6=E, r7=SE → row = (8-dir8)%8.
+const WIZ_ROW: [usize; 8] = [0, 7, 6, 5, 4, 3, 2, 1];
 
 fn main() -> anyhow::Result<()> {
     let server_addr: SocketAddr = std::env::var("RAGNADOFUS_SERVER")
@@ -242,7 +310,8 @@ fn main() -> anyhow::Result<()> {
             sync_transforms,
             hop_arc,
             face_trees,
-            animate_walk,
+            animate_knight,
+            animate_wizard,
             auto_rotate_camera,
             camera_orbit,
             apply_vision,
@@ -319,41 +388,89 @@ fn make_netcode(
     Ok((client, transport))
 }
 
-/// Carrega os sprites autorais de caminhada do herói (`hero_0..3.png`).
+/// Carrega os sprites direcionais do cavaleiro (`knight/{s,se,e,ne,n}{,_walk0..3}.png`).
 fn load_assets(asset_server: Res<AssetServer>, mut commands: Commands) {
-    let frames = (0..4).map(|i| asset_server.load(format!("hero_{i}.png"))).collect();
-    commands.insert_resource(HeroFrames(frames));
+    let names = ["s", "se", "e", "ne", "n"];
+    let idle = names.map(|d| asset_server.load(format!("knight/{d}.png")));
+    let walk =
+        names.map(|d| [0, 1, 2, 3].map(|i| asset_server.load(format!("knight/{d}_walk{i}.png"))));
+    commands.insert_resource(KnightSprites { idle, walk });
+
+    // NPC mago: sheet 8×8 fatiado (wizard/w_r{linha}_c{coluna}.png).
+    let frames: [[Handle<Image>; 8]; 8] = core::array::from_fn(|r| {
+        core::array::from_fn(|c| asset_server.load(format!("wizard/w_r{r}_c{c}.png")))
+    });
+    commands.insert_resource(WizardSprites { frames });
 }
 
-/// Anima a caminhada: enquanto o personagem se move, cicla os frames do sprite; parado,
-/// volta ao frame 0. Detecta movimento pela variação da `Position` replicada.
-fn animate_walk(
+/// Animação direcional do cavaleiro em 8 direções (relativas à câmera):
+/// - escolhe a direção pela velocidade (variação da `Position`) projetada no yaw da câmera;
+/// - andando: cicla os 4 frames de walk da direção; parado: pose idle + respiração/bob;
+/// - W/SW/NW = espelho (flip X via `scale.x` negativo) de E/SE/NE.
+///
+/// Roda DEPOIS de `sync_transforms`/`hop_arc` (compõe por cima da pose base).
+fn animate_knight(
     time: Res<Time>,
-    frames: Res<HeroFrames>,
+    orbit: Res<CamOrbit>,
+    sprites: Res<KnightSprites>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut actors: Query<(&Position, &mut WalkAnim, &MeshMaterial3d<StandardMaterial>)>,
+    mut actors: Query<(
+        Entity,
+        &Position,
+        &mut DirAnim,
+        &MeshMaterial3d<StandardMaterial>,
+        Option<&SpriteHalf>,
+        &mut Transform,
+    ), With<Player>>,
 ) {
-    for (pos, mut anim, material) in &mut actors {
-        let moving = anim.started && (pos.0 - anim.last).length() > 0.002;
+    let t = time.elapsed_secs();
+    for (e, pos, mut anim, material, sprite_half, mut transform) in &mut actors {
+        let v = pos.0 - anim.last;
         anim.last = pos.0;
+        if anim.started && v.length() > 0.002 {
+            anim.dir8 = dir8_from_velocity(v, orbit.yaw);
+            anim.move_cd = MOVE_HOLD; // segura "andando" entre updates de rede
+        }
         anim.started = true;
-        let target = if moving {
+        if anim.move_cd > 0.0 {
+            anim.move_cd -= time.delta_secs();
+        }
+        let moving = anim.move_cd > 0.0;
+
+        let (base, mirror) = dir8_to_base(anim.dir8);
+        let mirror_sign = if mirror { -1.0 } else { 1.0 };
+
+        // textura: walk (ciclo) ou idle.
+        let want = if moving {
             anim.timer += time.delta_secs();
             if anim.timer >= 0.14 {
                 anim.timer = 0.0;
                 anim.frame = (anim.frame + 1) % 4;
             }
-            anim.frame
+            &sprites.walk[base][anim.frame]
         } else {
             anim.timer = 0.0;
             anim.frame = 0;
-            0
+            &sprites.idle[base]
         };
         if let Some(mut mat) = materials.get_mut(&material.0) {
-            let want = &frames.0[target];
             if mat.base_color_texture.as_ref() != Some(want) {
                 mat.base_color_texture = Some(want.clone());
             }
+        }
+
+        // pose: andando = sprite "firme" (só o espelho); parado = respiração + bob.
+        if moving {
+            transform.scale = Vec3::new(mirror_sign, 1.0, 1.0);
+        } else {
+            let half = sprite_half.map(|h| h.0).unwrap_or(BILLBOARD_HALF);
+            let phase = (e.to_bits() % 17) as f32 * 0.37;
+            let breath = (t * 2.2 + phase).sin();
+            let sy = 1.0 + 0.025 * breath;
+            let sx = 1.0 - 0.015 * breath;
+            transform.scale = Vec3::new(mirror_sign * sx, sy, 1.0);
+            transform.translation.y += half * (sy - 1.0);
+            transform.translation.y += 0.015 * (t * 1.3 + phase).sin();
         }
     }
 }
@@ -541,6 +658,34 @@ fn on_zone_received(
         ));
     }
 
+    // Props de cenário (billboards) espalhados perto da casa — "montar coisas" no mundo.
+    // (tex, x, y, largura, altura). Arte original (crate/barril/arbusto/pedra/placa/flor).
+    let props: [(&str, u32, u32, f32, f32); 10] = [
+        ("crate.png", 22, 31, 0.9, 0.9),
+        ("crate.png", 23, 31, 0.9, 0.9),
+        ("crate.png", 22, 30, 0.9, 0.9),
+        ("barrel.png", 24, 30, 0.85, 0.95),
+        ("sign.png", 26, 31, 0.9, 0.9),
+        ("bush.png", 30, 33, 1.0, 0.88),
+        ("bush.png", 18, 33, 1.0, 0.88),
+        ("rock.png", 31, 29, 1.0, 0.75),
+        ("flower.png", 19, 30, 0.9, 0.68),
+        ("mushroom.png", 29, 34, 0.55, 0.55),
+    ];
+    for (file, px, py, pw, ph) in props {
+        let tex: Handle<Image> = asset_server.load(file);
+        let bright = materials.add(billboard_material(Color::WHITE, tex.clone()));
+        let dim = materials.add(billboard_material(Color::srgb(0.5, 0.5, 0.5), tex));
+        commands.spawn((
+            Mesh3d(meshes.add(Rectangle::new(pw, ph))),
+            MeshMaterial3d(bright.clone()),
+            Transform::from_xyz(px as f32, ph / 2.0, py as f32),
+            Billboard,
+            Cell { x: px, y: py },
+            DimPair { bright, dim },
+        ));
+    }
+
     commands.insert_resource(map.clone());
     built.0 = true;
     info!("mundo 3D construído: {}x{} (seed {:#x})", zone.tiles_x, zone.tiles_y, zone.seed);
@@ -549,7 +694,7 @@ fn on_zone_received(
 /// Dá corpo visual (billboard colorido) a cada player replicado. Cor derivada do `PlayerId`.
 fn hydrate_players(
     mut commands: Commands,
-    frames: Res<HeroFrames>,
+    sprites: Res<KnightSprites>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     players: Query<(Entity, &Player), Without<Billboard>>,
@@ -562,11 +707,12 @@ fn hydrate_players(
         // tinta suave (clara) para distinguir players sem lavar o sprite.
         let tint = Color::srgb(0.7 + 0.3 * r, 0.7 + 0.3 * g, 0.7 + 0.3 * b);
         commands.entity(entity).insert((
-            Mesh3d(meshes.add(Rectangle::new(BILLBOARD_W, BILLBOARD_HALF * 2.0))),
-            MeshMaterial3d(materials.add(billboard_material(tint, frames.0[0].clone()))),
-            Transform::from_xyz(0.0, BILLBOARD_HALF, 0.0),
+            Mesh3d(meshes.add(Rectangle::new(HERO_W, HERO_H))),
+            MeshMaterial3d(materials.add(billboard_material(tint, sprites.idle[0].clone()))),
+            Transform::from_xyz(0.0, HERO_HALF, 0.0),
             Billboard,
-            WalkAnim { frame: 0, timer: 0.0, last: Vec2::ZERO, started: false },
+            SpriteHalf(HERO_HALF),
+            DirAnim { last: Vec2::ZERO, started: false, dir8: 0, frame: 0, timer: 0.0, move_cd: 0.0 },
         ));
     }
 }
@@ -574,19 +720,86 @@ fn hydrate_players(
 /// Dá corpo visual (billboard azul) ao NPC replicado.
 fn hydrate_npcs(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    sprites: Res<WizardSprites>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     npcs: Query<Entity, (With<Npc>, Without<Billboard>)>,
 ) {
-    let npc_tex = asset_server.load("npc.png");
     for entity in &npcs {
         commands.entity(entity).insert((
-            Mesh3d(meshes.add(Rectangle::new(BILLBOARD_W, BILLBOARD_HALF * 2.0))),
-            MeshMaterial3d(materials.add(billboard_material(Color::WHITE, npc_tex.clone()))),
-            Transform::from_xyz(0.0, BILLBOARD_HALF, 0.0),
+            Mesh3d(meshes.add(Rectangle::new(WIZ_W, WIZ_H))),
+            MeshMaterial3d(materials.add(billboard_material(Color::WHITE, sprites.frames[0][0].clone()))),
+            Transform::from_xyz(0.0, WIZ_HALF, 0.0),
             Billboard,
+            SpriteHalf(WIZ_HALF),
+            DirAnim { last: Vec2::ZERO, started: false, dir8: 0, frame: 0, timer: 0.0, move_cd: 0.0 },
+            WizardNpc,
         ));
+    }
+}
+
+/// Animação direcional do NPC mago: 8 direções NATIVAS (linhas do sheet) × 8 frames de walk
+/// (colunas). Escolhe a linha pela velocidade projetada no yaw (`WIZ_ROW`); parado = frame 0
+/// + respiração leve. Roda DEPOIS de `sync_transforms`.
+fn animate_wizard(
+    time: Res<Time>,
+    orbit: Res<CamOrbit>,
+    sprites: Res<WizardSprites>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut actors: Query<
+        (
+            &Position,
+            &mut DirAnim,
+            &MeshMaterial3d<StandardMaterial>,
+            Option<&SpriteHalf>,
+            &mut Transform,
+        ),
+        With<WizardNpc>,
+    >,
+) {
+    let t = time.elapsed_secs();
+    for (pos, mut anim, material, sprite_half, mut transform) in &mut actors {
+        let v = pos.0 - anim.last;
+        anim.last = pos.0;
+        if anim.started && v.length() > 0.002 {
+            anim.dir8 = dir8_from_velocity(v, orbit.yaw);
+            anim.move_cd = MOVE_HOLD; // segura "andando" entre updates de rede
+        }
+        anim.started = true;
+        if anim.move_cd > 0.0 {
+            anim.move_cd -= time.delta_secs();
+        }
+        let moving = anim.move_cd > 0.0;
+
+        let row = WIZ_ROW[anim.dir8];
+        let want = if moving {
+            anim.timer += time.delta_secs();
+            if anim.timer >= 0.12 {
+                anim.timer = 0.0;
+                anim.frame = (anim.frame + 1) % 8;
+            }
+            &sprites.frames[row][anim.frame]
+        } else {
+            anim.timer = 0.0;
+            anim.frame = 0;
+            &sprites.frames[row][0]
+        };
+        if let Some(mut mat) = materials.get_mut(&material.0) {
+            if mat.base_color_texture.as_ref() != Some(want) {
+                mat.base_color_texture = Some(want.clone());
+            }
+        }
+
+        if moving {
+            transform.scale = Vec3::ONE;
+        } else {
+            let half = sprite_half.map(|h| h.0).unwrap_or(BILLBOARD_HALF);
+            let breath = (t * 2.0).sin();
+            let sy = 1.0 + 0.02 * breath;
+            let sx = 1.0 - 0.012 * breath;
+            transform.scale = Vec3::new(sx, sy, 1.0);
+            transform.translation.y += half * (sy - 1.0);
+        }
     }
 }
 
@@ -609,10 +822,14 @@ fn billboard_material(tint: Color, texture: Handle<Image>) -> StandardMaterial {
 fn sync_transforms(
     orbit: Res<CamOrbit>,
     map: Option<Res<Walkmap>>,
-    mut entities: Query<(&Position, Option<&Elevation>, &mut Transform), With<Billboard>>,
+    mut entities: Query<
+        (&Position, Option<&Elevation>, Option<&SpriteHalf>, &mut Transform),
+        With<Billboard>,
+    >,
 ) {
     let face = Quat::from_rotation_y(orbit.yaw);
-    for (position, elevation, mut transform) in &mut entities {
+    for (position, elevation, sprite_half, mut transform) in &mut entities {
+        let half = sprite_half.map(|h| h.0).unwrap_or(BILLBOARD_HALF);
         // Multi-nível: a altura vem da `Elevation` replicada (sobe escada / cai). Entidades
         // sem elevação (NPC) usam a altura do térreo na walkmap.
         let base_y = match elevation {
@@ -626,7 +843,7 @@ fn sync_transforms(
                 None => 0.0,
             },
         };
-        transform.translation = Vec3::new(position.0.x, base_y + BILLBOARD_HALF, position.0.y);
+        transform.translation = Vec3::new(position.0.x, base_y + half, position.0.y);
         transform.rotation = face;
     }
 }
