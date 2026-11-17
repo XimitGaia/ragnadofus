@@ -31,12 +31,18 @@ expect_used = "deny"
 # Bevy permitir). Silencia só o ruído de ECS; NÃO relaxa o essencial acima.
 type_complexity = "allow"
 
-# Perf em DEV (recomendação oficial do Bevy): otimiza as DEPENDÊNCIAS (Bevy/wgpu/naga) no
-# profile de debug, mantendo os nossos crates em opt-level 0 (compilação incremental rápida).
-# Sem isso o cliente roda lento/travado em debug mesmo com pouco conteúdo.
+# Perf em DEV: otimiza as DEPENDÊNCIAS (Bevy/wgpu/naga) em debug — é o que deixa o cliente
+# fluido mesmo com pouco conteúdo (o custo quente é do Bevy, não do nosso glue).
 [profile.dev.package."*"]
 opt-level = 3
 
-# Nossos crates em debug continuam rápidos de compilar.
-[profile.dev]
+# EXCEÇÃO: os nossos crates do workspace ficam em opt-0 (per-package vence o "*" acima), pra
+# compilação incremental RÁPIDA. Sem isso, cada mudança nossa recompila otimizado (lento).
+[profile.dev.package.shared]
+opt-level = 0
+[profile.dev.package.server]
+opt-level = 0
+[profile.dev.package.client]
+opt-level = 0
+[profile.dev.package.xtask]
 opt-level = 0
